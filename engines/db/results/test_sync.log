@@ -1,0 +1,5 @@
+AltSql DB 0.1.0-alpha: sync from AltSql Core devices
+  six devices, 40 rounds, batches of 64 to 3,064 bytes: 6116 rows stored as sent; resends, stale, cut and damaged batches: ok
+  power cuts on the gateway during sync: 623 cuts, 623 writes in the session; every device complete after resending: ok
+all passed
+exit 0

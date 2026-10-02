@@ -1,0 +1,44 @@
+for t in test_db test_rows test_sync test_sql test_crash test_fault; do \
+  cc -std=c99 -pedantic -Wall -Wextra -Wshadow -D_POSIX_C_SOURCE=200809L -O1 -g -fsanitize=address,undefined,float-cast-overflow -fno-omit-frame-pointer -fno-sanitize-recover=all -I../../core/dist -I. -Itests -o build/$t.san tests/$t.c -lm && ./build/$t.san quick || exit 1; \
+done
+AltSql DB 0.1.0-alpha: unit and model tests
+  basics: ok
+  POSIX file and lock: ok
+  append: 100,000 keys in order -> 723 pages, depth 3
+  reuse: ten rewrites of 4,000 entries, 160-entry free-list window: 2521 pages after round 3, 2587 after round 6, 2588 after round 10
+  damaged header: each of 44 bytes changed in turn, the file opens at the commit before: ok
+  model tests: 36 runs, 12 seeds, page sizes 512, 1024 and 4096: ok
+all passed
+AltSql DB 0.1.0-alpha: tables
+  key encodings sort as their values: ok
+  real, float and text keys in order; caller errors: ok
+  model runs: 4 seeds, 512 and 4096-byte pages: ok
+all passed
+AltSql DB 0.1.0-alpha: sync from AltSql Core devices
+  six devices, 40 rounds, batches of 64 to 3,064 bytes: 6116 rows stored as sent; resends, stale, cut and damaged batches: ok
+  power cuts on the gateway during sync: 89 cuts, 623 writes in the session; every device complete after resending: ok
+all passed
+AltSql DB 0.1.0-alpha: SQL on the tree
+  Core's SQL and AltSql DB's: 30 fixed statements and 100 random ones, the same answers: ok
+  plans: point lookup reads 1 row, range scans only their range, 150 random narrowings return a full scan's rows: ok
+  INSERT: all or nothing, duplicate keys refused, OR REPLACE, named columns; errors keep a transaction usable: ok
+  synced tables: range per device reads only its ranges; GROUP BY device; kv over SQL: ok
+  IN lists: key list plan, one walk per value; NOT IN; text, reals, NULL: the same rows as a full scan: ok
+  UPDATE (in place and of keys), DELETE (tables and synced retention), DROP TABLE: rules, rollback, no pages lost: ok
+  prepared statements: parameters, batches by key and by skipping, INSERT, UPDATE and DELETE, two at once, rules: ok
+all passed
+AltSql DB 0.1.0-alpha: crash matrix
+  seed 1, 512-byte pages, 30 transactions of 12 changes: 357 cuts, all clean
+  seed 2, 512-byte pages, 30 transactions of 12 changes: 375 cuts, all clean
+  seed 3, 4096-byte pages, 14 transactions of 10 changes: 82 cuts, all clean
+  seed 4, 1024-byte pages, 20 transactions of 25 changes: 304 cuts, all clean
+  1118 cuts: 1077 opened at the last commit, 41 at the commit under way
+all passed
+AltSql DB 0.1.0-alpha: fault injection
+  seed 11, 512-byte pages: 113 runs, each with one failing call, all clean
+  seed 12, 512-byte pages: 121 runs, each with one failing call, all clean
+  seed 13, 4096-byte pages: 33 runs, each with one failing call, all clean
+  seed 14, 1024-byte pages: 99 runs, each with one failing call, all clean
+  366 runs; 29 failed commits turned out to be on disk after all
+all passed
+exit 0

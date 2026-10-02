@@ -1,0 +1,5 @@
+cursor 1248 bytes, handle 1120 bytes
+page 512: smallest working memory that opens: 38112 bytes
+page 4096: smallest working memory that opens: 164480 bytes
+page 65536: smallest working memory that opens: 2330240 bytes
+exit 0

@@ -1,0 +1,6 @@
+AltSql DB 0.1.0-alpha: tables
+  key encodings sort as their values: ok
+  real, float and text keys in order; caller errors: ok
+  model runs: 20 seeds, 512 and 4096-byte pages: ok
+all passed
+exit 0

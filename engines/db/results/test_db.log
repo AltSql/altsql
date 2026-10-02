@@ -1,0 +1,9 @@
+AltSql DB 0.1.0-alpha: unit and model tests
+  basics: ok
+  POSIX file and lock: ok
+  append: 100,000 keys in order -> 723 pages, depth 3
+  reuse: ten rewrites of 4,000 entries, 160-entry free-list window: 2521 pages after round 3, 2587 after round 6, 2588 after round 10
+  damaged header: each of 44 bytes changed in turn, the file opens at the commit before: ok
+  model tests: 180 runs, 60 seeds, page sizes 512, 1024 and 4096: ok
+all passed
+exit 0

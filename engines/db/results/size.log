@@ -1,0 +1,9 @@
+-O2  AltSql Core (gateway build): 68180 bytes of code
+-O2  AltSql DB, the engine:       94925 bytes
+-O2  AltSql DB with both ports:   98487 bytes
+-O2  SQLite 3.53.4, recommended options: 982281 bytes
+-Os  AltSql Core (gateway build): 47646 bytes of code
+-Os  AltSql DB, the engine:       68203 bytes
+-Os  AltSql DB with both ports:   70765 bytes
+-Os  SQLite 3.53.4, recommended options: 662732 bytes
+exit 0

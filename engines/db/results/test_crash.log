@@ -1,0 +1,8 @@
+AltSql DB 0.1.0-alpha: crash matrix
+  seed 1, 512-byte pages, 30 transactions of 12 changes: 1071 cuts, all clean
+  seed 2, 512-byte pages, 30 transactions of 12 changes: 1125 cuts, all clean
+  seed 3, 4096-byte pages, 14 transactions of 10 changes: 246 cuts, all clean
+  seed 4, 1024-byte pages, 20 transactions of 25 changes: 912 cuts, all clean
+  3354 cuts: 3223 opened at the last commit, 131 at the commit under way
+all passed
+exit 0

@@ -1,0 +1,144 @@
+<!doctype html>
+<!-- Copyright 2026 AltSql.com
+     SPDX-License-Identifier: Apache-2.0 -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AltSql DB Live Demo</title>
+<meta name="description" content="Twelve devices running AltSql Core sync into one AltSql DB file on the gateway. Ask it with SQL or the direct path, compare the bytes, and cut its power in the middle of a commit, in your browser.">
+<meta name="robots" content="noindex, follow">
+<link rel="canonical" href="https://altsql.com/demo/db/">
+<base target="_top">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231F3A5F'/%3E%3Cpath d='M9 24l7-16 7 16M11.6 18.5h8.8' stroke='%2350C4CC' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<script>if (window.self !== window.top) document.documentElement.className += ' embedded';</script>
+<link rel="stylesheet" href="db.v1.css">
+</head>
+<body>
+
+<header class="appbar">
+  <div class="wrap">
+    <a class="brand" href="/">AltSql</a>
+    <span class="tag">AltSql DB demo</span>
+    <span class="grow"></span>
+    <a class="home" href="/db/">About AltSql DB</a>
+  </div>
+</header>
+
+<main class="wrap">
+  <noscript><p class="noscript">This demo needs JavaScript switched on.</p></noscript>
+
+  <section class="intro">
+    <p class="eyebrow">AltSql DB · Live demo</p>
+    <h1>A whole fleet in one file</h1>
+    <p class="lead">Twelve devices run AltSql Core, each on its own flash chip, and every ten seconds each saves a reading and sends the gateway what it has not confirmed yet, as the bytes sit in its flash. The gateway keeps every device in one AltSql DB file, the devices' bytes unchanged, and answers two ways: SQL, and a direct path with no SQL step at all.</p>
+    <p class="honest"><b>Simulated devices and file, real code.</b> AltSql Core and AltSql DB run in this page, compiled to WebAssembly. The chips and the gateway's file are emulated in memory, so the power can be cut at any write.</p>
+  </section>
+
+  <section class="panel" aria-labelledby="h-try">
+    <div class="panel-head">
+      <h2 id="h-try">Try this</h2>
+      <p class="muted" id="engine-state">Loading the modules</p>
+    </div>
+    <ol class="steps">
+      <li><button class="step-btn" id="go-run" type="button" disabled><b>1. Ten minutes of the fleet</b><span>60 readings from each device, synced batch by batch into the one file</span></button></li>
+      <li><button class="step-btn" id="go-sql" type="button" disabled><b>2. Ask with SQL</b><span>The last ten minutes of every device, and the plan the gateway chose</span></button></li>
+      <li><button class="step-btn" id="go-direct" type="button" disabled><b>3. The direct path beside SQL</b><span>A device's newest reading both ways, and its bytes beside the device's</span></button></li>
+      <li><button class="step-btn" id="go-cut" type="button" disabled><b>4. Cut the power in a commit</b><span>The file opens again, every page is checked, the devices resend</span></button></li>
+    </ol>
+    <p class="note" id="step-note" role="status" hidden></p>
+  </section>
+
+  <div class="grid2">
+    <section class="panel" aria-labelledby="h-fleet">
+      <div class="panel-head">
+        <h2 id="h-fleet">The fleet</h2>
+        <span class="clock" id="clock" title="The devices' clock">0:00</span>
+      </div>
+      <div class="bar-row">
+        <button class="btn small-btn" id="btn-play" type="button" disabled>Play</button>
+        <span class="muted small">Each step is ten seconds of the devices' time: a reading from each, then a batch from each to the gateway.</span>
+      </div>
+      <div class="table-wrap"><table class="cmp" id="fleet"></table></div>
+    </section>
+
+    <section class="panel" aria-labelledby="h-gw">
+      <h2 id="h-gw">The gateway's file</h2>
+      <p class="muted small">One AltSql DB file for every device: a copy-on-write B-tree with two commit headers, one transaction for each batch.</p>
+      <div class="tiles" id="tiles"></div>
+    </section>
+  </div>
+
+  <section class="panel" aria-labelledby="h-sql">
+    <h2 id="h-sql">Ask the gateway</h2>
+    <p class="muted small">Core's own SQL over the tree. The synced table temps has the columns device and seq, then the device's own: time, machine, temp. The table kv holds every device's key-value pairs. WHERE picks the plan: a point lookup, a key list, a range scan, a range for each device, or a full scan.</p>
+    <div class="presets" id="presets"></div>
+    <label for="sql" class="sr">SQL</label>
+    <textarea class="sqlbox" id="sql" spellcheck="false" disabled>SELECT device, COUNT(*), AVG(temp), MAX(temp) FROM temps WHERE time >= 1767229200 GROUP BY device</textarea>
+    <div class="bar-row">
+      <button class="btn small-btn" id="btn-sql" type="button" disabled>Run</button>
+      <span class="muted small" id="sql-meta">&nbsp;</span>
+    </div>
+    <p class="plan" id="plan" hidden></p>
+    <div class="table-wrap"><table class="cmp" id="result"></table></div>
+  </section>
+
+  <section class="panel" aria-labelledby="h-direct">
+    <h2 id="h-direct">The direct path beside SQL</h2>
+    <p class="muted small">A device's newest reading, read a thousand times each way. The direct path is altsql_db_row_last and altsql_db_row_read: one walk down the tree, no parser, no planner. SQL reads the same reading with ORDER BY time DESC LIMIT 1.</p>
+    <div class="bar-row">
+      <label for="dev">Device</label>
+      <select class="dev" id="dev" disabled></select>
+      <button class="btn small-btn" id="btn-direct" type="button" disabled>Read it both ways</button>
+    </div>
+    <div class="side" id="side" hidden>
+      <div><h3>Direct path</h3><div class="big" id="d-time">&nbsp;</div><div class="what" id="d-what">&nbsp;</div></div>
+      <div><h3>SQL</h3><div class="big" id="s-time">&nbsp;</div><div class="what" id="s-what">&nbsp;</div></div>
+    </div>
+    <div id="bytes" hidden>
+      <h3>The reading's bytes</h3>
+      <p class="muted small" id="b-note">&nbsp;</p>
+      <div class="muted small">On the device, as AltSql Core wrote it (the 12-byte record header, then the payload):</div>
+      <div class="hex" id="b-dev"></div>
+      <div class="muted small">In the gateway's file, under the key (device, time, seq):</div>
+      <div class="hex" id="b-gw"></div>
+    </div>
+  </section>
+
+  <section class="panel" aria-labelledby="h-cut">
+    <h2 id="h-cut">Cut the gateway's power</h2>
+    <p class="muted small">The fleet runs on, and the power goes during a commit: while it writes its pages, or while it writes its commit header. Any mix of the writes since the last sync survives, and the write that was cut lands in part, sector by sector. Then the file is opened again, both headers are checked page by page, and each device resends from the position the gateway now holds for it.</p>
+    <div class="bar-row">
+      <button class="btn small-btn" id="btn-cut-pages" type="button" disabled>While it writes pages</button>
+      <button class="btn small-btn" id="btn-cut-header" type="button" disabled>While it writes the header</button>
+    </div>
+    <ul class="cutlog" id="cutlog"></ul>
+  </section>
+
+  <section class="panel real" aria-labelledby="h-real">
+    <h2 id="h-real" class="sr">What is real here</h2>
+    <div>
+      <h3>Real</h3>
+      <ul>
+        <li>AltSql Core on each device and AltSql DB on the gateway: the prototypes' own code, compiled to WebAssembly.</li>
+        <li>Sync as it works: each batch is the device's records as they sit in its flash, applied in one transaction with the device's new position.</li>
+        <li>The SQL, the plans, the direct path, the bytes shown, the power cuts and the checks after them.</li>
+      </ul>
+    </div>
+    <div>
+      <h3>Simulated</h3>
+      <ul>
+        <li>The devices' flash chips and the gateway's file, emulated in memory. The radio between them: a batch of up to 1,200 bytes from each device every ten seconds.</li>
+        <li>The readings: a temperature pattern for each device. The fleet had run for an hour before the page started.</li>
+        <li>The timings are this browser's, for code compiled to WebAssembly, not a gateway's.</li>
+      </ul>
+    </div>
+  </section>
+
+  <footer class="appfoot">AltSql DB <span id="ver">0.1.0-alpha</span>, a prototype in development, open source under Apache 2.0. <a href="https://altsql.com/db/">About AltSql DB</a></footer>
+</main>
+
+<script src="engine-db.v1.js"></script>
+<script src="db.v1.js"></script>
+</body>
+</html>

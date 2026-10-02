@@ -1,0 +1,10 @@
+AltSql DB 0.1.0-alpha: SQL on the tree
+  Core's SQL and AltSql DB's: 30 fixed statements and 1000 random ones, the same answers: ok
+  plans: point lookup reads 1 row, range scans only their range, 1500 random narrowings return a full scan's rows: ok
+  INSERT: all or nothing, duplicate keys refused, OR REPLACE, named columns; errors keep a transaction usable: ok
+  synced tables: range per device reads only its ranges; GROUP BY device; kv over SQL: ok
+  IN lists: key list plan, one walk per value; NOT IN; text, reals, NULL: the same rows as a full scan: ok
+  UPDATE (in place and of keys), DELETE (tables and synced retention), DROP TABLE: rules, rollback, no pages lost: ok
+  prepared statements: parameters, batches by key and by skipping, INSERT, UPDATE and DELETE, two at once, rules: ok
+all passed
+exit 0

@@ -1,0 +1,11 @@
+engine 0.1.0-alpha {"ok":true,"devices":12} 89 ms to start
+after ten more minutes: 5040 rows from 12 devices, 66 pages, 53.6 bytes per reading
+SELECT device, COUNT(*), AVG(temp) FROM temps WHERE time >= 1767228600 GROUP BY device -> 12 rows, 1452 read, plan range per device|temps, range on time
+SELECT * FROM temps WHERE device = 105 AND time > 1767229800 -> 0 rows, 1 read, plan range scan|temps, fixed: device, range on time
+SELECT * FROM temps WHERE device = 105 ORDER BY time DESC LIMIT 1 -> 1 rows, 420 read, plan range scan|temps, fixed: device
+SELECT key, value, COUNT(*) FROM kv GROUP BY key, value -> 7 rows, 36 read, plan full scan|kv
+SELECT * FROM nosuch -> error no such table: nosuch
+direct: {"ok":true,"device":105,"seq":429,"time":1767229800,"machine":1,"temp":25.87}
+bytes: same true device 010068c955690000000001000000c3f5ce41 gateway 010068c955690000000001000000c3f5ce41
+power cuts: 30 kept the last commit 21 kept the commit under way 9 problems 0
+exit 0
