@@ -1,0 +1,31 @@
+./build/test_basic
+  sectors 16 x 4096 B, align  4, map() : ok
+  sectors 16 x 4096 B, align  4, read(): ok
+  sectors 16 x  512 B, align  1, map() : ok
+  sectors 16 x  512 B, align  8, read(): ok
+  sectors  8 x 1024 B, align 16, map() : ok
+  sectors 32 x  256 B, align  2, read(): ok
+  file port: ok
+test_basic: 104942 checks, 0 failed
+./build/test_powercut
+   8 sectors x 1024 B, align  4, map() : ok after 2500 cuts
+  16 sectors x  512 B, align  1, read(): ok after 2500 cuts
+   8 sectors x 1024 B, align  8, read(): ok after 2500 cuts
+   6 sectors x 2048 B, align 16, map() : ok after 2500 cuts
+  10000 power cuts (704 during an erase), 714838 operations; in-flight op kept 784, dropped 9216;
+  26105 sectors reclaimed, 354144 rows rolled over; reopen failures: 0
+test_powercut: 801570 checks, 0 failed
+./build/test_sync
+  outage: gateway had rows 1..1990, sensor still had 3053.. when the link came back
+  sensor keeps 462 raw rows (rolled over 5630); gateway has 4938
+  summary gateway has 83 minute rows, no raw rows
+  link to raw gateway: 147032 bytes in 543 batches (48 lost, 43 acks lost)
+  link to summary gateway: 5772 bytes in 96 batches (4 lost, 5 acks lost)
+test_sync: 9340 checks, 0 failed
+./build/test_fuzz
+  20000 mutated SQL statements, 20000 sync batches, 5000 text imports: no crash, database intact
+test_fuzz: 55093 checks, 0 failed
+
+real	0m2.006s
+user	0m1.999s
+sys	0m0.003s

@@ -1,0 +1,4 @@
+dist/altsql.h:2099:17: runtime error: -nan is outside the range of representable values of type 'long'
+SUMMARY: UndefinedBehaviorSanitizer: undefined-behavior dist/altsql.h:2099:17 
+stat::number_of_executed_units: 1373221
+stat::number_of_executed_units: 1533388

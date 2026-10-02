@@ -1,0 +1,9 @@
+python3 tools/amalgamate.py
+wrote dist/altsql.h
+mkdir -p build
+cc -std=c99 -pedantic -Wall -Wextra -Wshadow -D_POSIX_C_SOURCE=200809L -O2 -g -Idist -Itests -o build/altsql tools/cli.c
+cc -std=c99 -pedantic -Wall -Wextra -Wshadow -D_POSIX_C_SOURCE=200809L -O2 -g -Idist -Itests -o build/demo tools/demo.c
+cc -std=c99 -pedantic -Wall -Wextra -Wshadow -D_POSIX_C_SOURCE=200809L -O2 -g -Idist -Itests -o build/test_basic tests/test_basic.c
+cc -std=c99 -pedantic -Wall -Wextra -Wshadow -D_POSIX_C_SOURCE=200809L -O2 -g -Idist -Itests -o build/test_powercut tests/test_powercut.c
+cc -std=c99 -pedantic -Wall -Wextra -Wshadow -D_POSIX_C_SOURCE=200809L -O2 -g -Idist -Itests -o build/test_sync tests/test_sync.c
+cc -std=c99 -pedantic -Wall -Wextra -Wshadow -D_POSIX_C_SOURCE=200809L -O2 -g -Idist -Itests -o build/test_fuzz tests/test_fuzz.c

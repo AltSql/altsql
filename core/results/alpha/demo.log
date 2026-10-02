@@ -1,0 +1,97 @@
+AltSql demo: one engine, set up for three devices
+
+1. MACHINE SENSOR  64 KB flash, about 1048 bytes of engine RAM on a 32-bit chip
+   A reading a second for an hour. Wi-Fi drops out from minute 20 to 35.
+   Gateway A gets every record; gateway B only per-minute summaries and the state.
+
+   05:31  above 60 C for 10 s: alarm raised, fan on
+   06:19  back to normal: alarm cleared, fan off
+   20:00  Wi-Fi down
+   26:59  above 60 C for 10 s: alarm raised, fan on  (Wi-Fi down: decided on the device)
+   28:19  back to normal: alarm cleared, fan off
+   35:00  Wi-Fi back: sensor catches up, 24128 bytes to gateway A, 702 to gateway B
+   48:21  above 60 C for 10 s: alarm raised, fan on
+   48:54  back to normal: alarm cleared, fan off
+
+   On the gateways:
+    gateway-A> SELECT COUNT(*) AS readings, AVG(temp) AS avg, MAX(temp) AS max FROM raw
+      readings    avg         max         
+      3600        46.4        68.0        
+    gateway-B> SELECT time AS minute, max FROM minute WHERE max > 60
+      minute      max         
+      5           65.0        
+      6           64.7        
+      26          67.3        
+      27          68.0        
+      28          68.0        
+      48          65.0        
+    gateway-B> SELECT key, value FROM kv
+      key         value       
+      fan         off         
+   Gateway A holds all 3600 readings, including the 900 taken while Wi-Fi was down.
+
+2. COLD-CHAIN LOGGER  512 KB flash in 64 KB blocks, about 920 bytes of engine RAM
+   A reading every 30 s for a 48-hour run. Mobile coverage only at depots.
+   Over the air: 15-minute summaries and excursion records. Full log read out at the dock.
+
+   16h00  depot: coverage back, 2142 bytes sent over the mobile network
+   22h42  above 8 C for 15 min: excursion recorded, driver alerted  (no coverage: decided on the logger)
+   23h18  back below 8 C: excursion of 51 min closed, peak 12.4 C
+   32h00  depot: coverage back, 2233 bytes sent over the mobile network
+   47h30  depot: coverage back, 2074 bytes sent over the mobile network
+
+   In the cloud, from the mobile link:
+    cloud> SELECT time / 3600 AS start_hour, minutes, peak FROM excursion
+      start_hour  minutes     peak        
+      22          51          12.4        
+    cloud> SELECT COUNT(*) AS quarters, MAX(max) AS warmest FROM quarter WHERE max > 8
+      quarters    warmest     
+      13          12.4        
+   At the dock, from the full read-out:
+    dock> SELECT COUNT(*) AS readings, SUM(door) AS door_open, MIN(temp) AS coldest, MAX(temp) AS warmest FROM raw
+      readings    door_open   coldest     warmest     
+      5760        32          3.7         12.4        
+   Door openings warmed the load past 8 C for a few minutes without counting as excursions.
+
+3. SOIL SENSOR  32 KB flash, about 672 bytes of engine RAM
+   A reading every 15 minutes for 30 days. The sensor runs the irrigation valve itself.
+   Radio: one message a day of at most 51 bytes, carrying the daily summary.
+
+   day 10  moisture 19.9% for an hour: valve opened
+   day 10  moisture back to 35.8%: valve closed
+   day 14  moisture 19.9% for an hour: valve opened
+   day 14  moisture back to 35.4%: valve closed
+   day 18  moisture 19.9% for an hour: valve opened
+   day 19  moisture back to 35.8%: valve closed
+   day 30  moisture 20.0% for an hour: valve opened
+   day 30  moisture back to 36.2%: valve closed
+
+   At the farm office, from 30 radio messages:
+    farm-office> SELECT COUNT(*) AS days, MIN(min) AS driest, SUM(irrigation) AS irrigation_minutes FROM day
+      days        driest      irrigation_minutes
+      30          19.7        780         
+    farm-office> SELECT time / 86400 + 1 AS day, avg, irrigation FROM day WHERE irrigation > 0
+      day         avg         irrigation  
+      10          30.5        195         
+      14          24.2        195         
+      18          21.8        120         
+      19          36.0        75          
+      30          31.7        195         
+   The sensor keeps the most recent days of 15-minute detail; its 32 KB rolled over 2251 older readings.
+
+Same engine, three set-ups
+                            Machine sensor          Cold-chain logger       Soil sensor             
+  flash on the device       64 KB                   512 KB                  32 KB                   
+  engine RAM (32-bit chip)  about 1048 bytes        about 920 bytes         about 672 bytes         
+  readings                  1 per second, 1 hour    1 per 30 s, 48 hours    1 per 15 min, 30 days   
+  decided on the device     overheat: alarm, fan    excursion record        irrigation valve        
+  link                      Wi-Fi, 15-min outage    mobile, at depots only  radio, 51 bytes a day   
+  sent upstream             2533 bytes              6810 bytes              1140 bytes              
+  every reading as records  96133 bytes             179610 bytes            86400 bytes             
+  every reading as JSON     190800 bytes            328374 bytes            207360 bytes            
+  flash written on device   104204 bytes            191392 bytes            94820 bytes             
+  sector erases             25 (1.6 per sector)     2 (0.2 per sector)      23 (2.9 per sector)     
+
+real	0m0.701s
+user	0m0.697s
+sys	0m0.004s

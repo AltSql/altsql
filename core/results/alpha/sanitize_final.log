@@ -1,0 +1,26 @@
+for t in test_basic test_powercut test_sync test_fuzz; do \
+  cc -std=c99 -pedantic -Wall -Wextra -Wshadow -D_POSIX_C_SOURCE=200809L -O1 -g -fsanitize=address,undefined,float-cast-overflow -fno-omit-frame-pointer -fno-sanitize-recover=all -Idist -Itests -o build/$t.san tests/$t.c && ./build/$t.san quick || exit 1; \
+done
+  sectors 16 x 4096 B, align  4, map() : ok
+  sectors 16 x 4096 B, align  4, read(): ok
+  sectors 16 x  512 B, align  1, map() : ok
+  sectors 16 x  512 B, align  8, read(): ok
+  sectors  8 x 1024 B, align 16, map() : ok
+  sectors 32 x  256 B, align  2, read(): ok
+  file port: ok
+test_basic: 104942 checks, 0 failed
+   8 sectors x 1024 B, align  4, map() : ok after 250 cuts
+  16 sectors x  512 B, align  1, read(): ok after 250 cuts
+   8 sectors x 1024 B, align  8, read(): ok after 250 cuts
+   6 sectors x 2048 B, align 16, map() : ok after 250 cuts
+  1000 power cuts (76 during an erase), 70782 operations; in-flight op kept 75, dropped 925;
+  2421 sectors reclaimed, 34741 rows rolled over; reopen failures: 0
+test_powercut: 79701 checks, 0 failed
+  outage: gateway had rows 1..1990, sensor still had 3053.. when the link came back
+  sensor keeps 462 raw rows (rolled over 5630); gateway has 4938
+  summary gateway has 83 minute rows, no raw rows
+  link to raw gateway: 147032 bytes in 543 batches (48 lost, 43 acks lost)
+  link to summary gateway: 5772 bytes in 96 batches (4 lost, 5 acks lost)
+test_sync: 9340 checks, 0 failed
+  3000 mutated SQL statements, 3000 sync batches, 750 text imports: no crash, database intact
+test_fuzz: 8275 checks, 0 failed

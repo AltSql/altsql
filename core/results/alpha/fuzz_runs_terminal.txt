@@ -1,0 +1,21 @@
+libFuzzer runs whose stats were printed to the terminal only (not saved in a log file).
+Each line: run, target, executions per worker as printed by -print_final_stats (stat::number_of_executed_units).
+
+smoke run (sh tools/fuzz.sh 20 1), before later fixes:
+  sql     15591      (stopped: rule broken, empty error message after CREATE TABLE IF NOT EXISTS + bad char)
+  sync    4990       (stopped: export failed after a malformed series definition)
+  import  156512
+  mount   178062
+
+60 s run (sh tools/fuzz.sh 60 2), after fixing the two above:
+  sql     23171 + 250775   (UBSan: float to integer conversion in ROUND, inputs ROUND(b, 41e308) and ROUND(b, -9.2e19))
+  sync    370519 + 368259
+  import  1806 + 90366     (UBSan: null pointer in as_series_schema on import of series name with zero byte)
+  mount   583909 + 578574
+
+240 s campaign: see fuzz_campaign1.log (sql stopped on an unterminated-string empty-message case)
+sql2 300 s: see fuzz_sql2.log (UBSan: NaN to integer conversion in as_round)
+sql3 300 s: see fuzz_sql3.log (clean, final SQL code)
+final round 180 s each for sync, import, mount: see fuzz_final.log (clean, final code)
+
+Random-mutation fuzzer (tests/test_fuzz.c) final run: fuzz_300k_final.log

@@ -1,0 +1,25 @@
+== sql: 240 s
+rule broken: rc >= 0 || altsql_errmsg(d.db)[0] (line 111)
+==2742== ERROR: libFuzzer: deadly signal
+SUMMARY: libFuzzer: deadly signal
+stat::number_of_executed_units: 494338
+stat::peak_rss_mb:              422
+stat::number_of_executed_units: 1350766
+stat::peak_rss_mb:              428
+== sync: 240 s
+stat::number_of_executed_units: 1212790
+stat::peak_rss_mb:              433
+stat::number_of_executed_units: 1451904
+stat::peak_rss_mb:              433
+== import: 240 s
+stat::number_of_executed_units: 1634611
+stat::peak_rss_mb:              440
+stat::number_of_executed_units: 1552297
+stat::peak_rss_mb:              440
+== mount: 240 s
+stat::number_of_executed_units: 2105851
+stat::peak_rss_mb:              434
+stat::number_of_executed_units: 2122284
+stat::peak_rss_mb:              432
+sql-crash-5cef7ec2f57597260c8e06d94bd32425d3aa043e
+FAILURES FOUND (inputs saved in build/fuzz/)

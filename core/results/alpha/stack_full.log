@@ -1,0 +1,44 @@
+Sensor build (key-value, time-series, sync): deepest stack per call
+altsql_ts_create        1376 bytes   altsql_ts_create > as_kv_write > as_reserve > as_kv_latest > as_kv_lookup > as_key_at > as_err
+altsql_ts_window        1352 bytes   altsql_ts_window > as_series_schema > as_kv_latest > as_kv_lookup > as_key_at > as_err
+altsql_ts_append        1352 bytes   altsql_ts_append > as_row_write > as_reserve > as_kv_latest > as_kv_lookup > as_key_at > as_err
+altsql_append           1352 bytes   altsql_append > as_row_write > as_reserve > as_kv_latest > as_kv_lookup > as_key_at > as_err
+altsql_sync_apply       1080 bytes   altsql_sync_apply > as_reserve > as_kv_latest > as_kv_lookup > as_key_at > as_err
+altsql_del              1080 bytes   altsql_del > as_kv_write > as_reserve > as_kv_latest > as_kv_lookup > as_key_at > as_err
+altsql_put              1072 bytes   altsql_put > as_kv_write > as_reserve > as_kv_latest > as_kv_lookup > as_key_at > as_err
+altsql_series_each      1008 bytes   altsql_series_each > as_series_schema > as_kv_latest > as_kv_lookup > as_key_at > as_err
+altsql_get               696 bytes   altsql_get > as_kv_latest > as_kv_lookup > as_key_at > as_err
+altsql_open              552 bytes   altsql_open > as_mount > as_note > as_kv_lookup > as_key_at > as_err
+altsql_ts_scan           448 bytes   altsql_ts_scan > as_row_decode
+altsql_sync_read         184 bytes   altsql_sync_read > as_next > as_err
+altsql_kv_each           176 bytes   altsql_kv_each > as_next > as_err
+altsql_format            104 bytes   altsql_format > as_hdr_make
+altsql_series_id          56 bytes   altsql_series_id > as_series_find
+altsql_info_get           24 bytes   altsql_info_get
+altsql_errmsg              0 bytes   altsql_errmsg
+altsql_close               0 bytes   altsql_close
+calls outside the engine (libc): __aeabi_d2f, __aeabi_d2lz, __aeabi_dadd, __aeabi_dcmpge, __aeabi_dcmpgt, __aeabi_dcmple, __aeabi_dcmplt, __aeabi_ddiv, __aeabi_dmul, __aeabi_f2d, __aeabi_fcmpeq, __aeabi_fcmplt, __aeabi_l2d, __aeabi_ui2d, memcmp, memcpy, memmove, memset, strlen
+
+Gateway build (everything): deepest stack per call
+altsql_exec             4264 bytes   altsql_exec > altsql_ts_create > as_kv_write > as_reserve > as_kv_latest > as_kv_lookup > as_key_at > as_err
+altsql_import           2016 bytes   altsql_import > altsql_ts_create > as_kv_write > as_reserve > as_kv_latest > as_kv_lookup > as_key_at > as_err
+altsql_export           1392 bytes   altsql_export > as_series_schema > as_kv_latest > as_kv_lookup > as_key_at > as_err
+altsql_ts_create        1376 bytes   altsql_ts_create > as_kv_write > as_reserve > as_kv_latest > as_kv_lookup > as_key_at > as_err
+altsql_ts_window        1352 bytes   altsql_ts_window > as_series_schema > as_kv_latest > as_kv_lookup > as_key_at > as_err
+altsql_ts_append        1352 bytes   altsql_ts_append > as_row_write > as_reserve > as_kv_latest > as_kv_lookup > as_key_at > as_err
+altsql_append           1352 bytes   altsql_append > as_row_write > as_reserve > as_kv_latest > as_kv_lookup > as_key_at > as_err
+altsql_sync_apply       1080 bytes   altsql_sync_apply > as_reserve > as_kv_latest > as_kv_lookup > as_key_at > as_err
+altsql_del              1080 bytes   altsql_del > as_kv_write > as_reserve > as_kv_latest > as_kv_lookup > as_key_at > as_err
+altsql_put              1072 bytes   altsql_put > as_kv_write > as_reserve > as_kv_latest > as_kv_lookup > as_key_at > as_err
+altsql_series_each      1008 bytes   altsql_series_each > as_series_schema > as_kv_latest > as_kv_lookup > as_key_at > as_err
+altsql_get               696 bytes   altsql_get > as_kv_latest > as_kv_lookup > as_key_at > as_err
+altsql_open              552 bytes   altsql_open > as_mount > as_note > as_kv_lookup > as_key_at > as_err
+altsql_ts_scan           448 bytes   altsql_ts_scan > as_row_decode
+altsql_sync_read         184 bytes   altsql_sync_read > as_next > as_err
+altsql_kv_each           176 bytes   altsql_kv_each > as_next > as_err
+altsql_format            104 bytes   altsql_format > as_hdr_make
+altsql_series_id          56 bytes   altsql_series_id > as_series_find
+altsql_info_get           24 bytes   altsql_info_get
+altsql_errmsg              0 bytes   altsql_errmsg
+altsql_close               0 bytes   altsql_close
+calls outside the engine (libc): __aeabi_d2f, __aeabi_d2lz, __aeabi_dadd, __aeabi_dcmpeq, __aeabi_dcmpge, __aeabi_dcmpgt, __aeabi_dcmple, __aeabi_dcmplt, __aeabi_dcmpun, __aeabi_ddiv, __aeabi_dmul, __aeabi_dsub, __aeabi_f2d, __aeabi_fcmpeq, __aeabi_fcmplt, __aeabi_l2d, __aeabi_ldivmod, __aeabi_ui2d, __aeabi_uldivmod, memchr, memcmp, memcpy, memmove, memset, snprintf, strchr, strcmp, strlen, strpbrk, strtod, strtoll

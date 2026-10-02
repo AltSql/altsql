@@ -1,0 +1,19 @@
+sh tools/size.sh
+Every build below: clang -Os -std=c99 -pedantic -Wall -Wextra -Wshadow -Werror (fails on any warning)
+
+AltSql code size, Cortex-M4 Thumb-2, clang -Os:
+  kv           6554 bytes code +   664 bytes constants   key-value only
+  sensor      11854 bytes code +  1518 bytes constants   key-value + time-series
+  sensor+     13190 bytes code +  1764 bytes constants   key-value + time-series + sync
+  gateway     34042 bytes code +  4080 bytes constants   everything, including SQL and text export
+
+Same code, other chip families (code + constants, bytes):
+  target                          key-value   sensor (+ts +sync)   gateway (all)
+  Cortex-M0+ (ARMv6-M)              6944           14494             37770
+  Cortex-M4 (ARMv7E-M)              7218           14954             38122
+  Cortex-M33 (ARMv8-M)              7218           14954             38122
+  RISC-V RV32IMC                    8140           17118             44644
+  x86-64 (gateway, PC)              8843           18643             48884
+
+RAM on a 32-bit MCU: 232 bytes + 16 per flash sector + 8 per key slot + 44 per series + the record buffer
+  example: 64 KB flash as 16 x 4 KB sectors, 32 key slots, 4 series, 128-byte records = 1048 bytes

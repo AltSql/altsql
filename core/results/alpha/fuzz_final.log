@@ -1,0 +1,10 @@
+== sync
+stat::number_of_executed_units: 1072982
+stat::number_of_executed_units: 1011282
+== import
+stat::number_of_executed_units: 999086
+stat::number_of_executed_units: 928739
+== mount
+stat::number_of_executed_units: 1474885
+stat::number_of_executed_units: 1535327
+no failures

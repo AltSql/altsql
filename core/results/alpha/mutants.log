@@ -1,0 +1,19 @@
+#   area         planted bug                                                              result
+1   storage      a record's checksum is not checked when reading                          caught by test_powercut  [4 s]
+2   storage      after a power cut, writing resumes over a torn record                    caught by test_powercut  [5 s]
+3   storage      a sector is not erased before it is reused                               caught by test_basic  [3 s]
+4   storage      reclaiming skips live key-value records instead of copying them          caught by test_basic  [63 s]
+5   storage      a sector opened while reclaiming is not marked as such                   caught by test_powercut  [5 s]
+6   storage      an interrupted reclaim is not undone at start-up                         caught by test_powercut  [5 s]
+7   storage      a reclaimed sector is not retired                                        caught by test_powercut  [5 s]
+8   key-value    a reclaimed delete leaves a hole in the key index                        caught by test_basic  [3 s]
+9   sync         a delete the gateway has not confirmed is dropped when reclaiming        caught by test_sync  [7 s]
+10  sync         the gateway skips the record right after the ones it has                 caught by test_sync  [7 s]
+11  sync         the device skips a sector it still has to send                           caught by test_sync  [7 s]
+12  time-series  a time-range scan skips a sector whose newest row is exactly the start   caught by test_basic  [3 s]
+13  time-series  float values read back with binary noise (21.530000686645508)            caught by test_basic  [3 s]
+14  SQL          WHERE time >= N drops the rows at exactly N                              caught by test_basic  [3 s]
+15  SQL          OFFSET skips one row too many                                            caught by test_basic  [3 s]
+16  text         export does not escape quotes and backslashes                            caught by test_basic  [3 s]
+
+16 of 16 planted bugs caught

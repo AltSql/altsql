@@ -1,0 +1,4 @@
+# Copyright 2026 AltSql.com
+# SPDX-License-Identifier: Apache-2.0
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"

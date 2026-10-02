@@ -1,0 +1,11 @@
+   8 sectors x 1024 B, align  4, map() : ok after 100000 cuts
+  16 sectors x  512 B, align  1, read(): ok after 100000 cuts
+   8 sectors x 1024 B, align  8, read(): ok after 100000 cuts
+   6 sectors x 2048 B, align 16, map() : ok after 100000 cuts
+  400000 power cuts (27211 during an erase), 27829547 operations; in-flight op kept 31782, dropped 368218;
+  1038578 sectors reclaimed, 13805625 rows rolled over; reopen failures: 0
+test_powercut: 31686624 checks, 0 failed
+
+real	0m41.184s
+user	0m41.164s
+sys	0m0.000s

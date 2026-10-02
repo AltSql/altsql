@@ -1,0 +1,12 @@
+AltSql 0.1.0-prototype benchmark: 1000000 rows, 8397 sectors of 4096 bytes (file build/bench.db)
+  append:  0.18 s for 1000000 rows = 5430026 rows/s; 7876 sectors used = 32.3 bytes/row on flash
+  put:     3474074 puts/s (1000 keys, 10000 writes)
+  get:     11023149 gets/s
+  window:  0.052 ms for the last 60 s (60 rows, avg 29.70)
+  SQL:
+    202.8 ms  SELECT time / 3600 AS hour, COUNT(*), AVG(temp), MIN(temp), MAX(temp) FROM readings GROUP BY hour -> 278 rows
+    165.5 ms  SELECT machine, AVG(temp) FROM readings GROUP BY machine ORDER BY machine              -> 16 rows
+    151.8 ms  SELECT COUNT(*) FROM readings WHERE temp > 29.5                                        -> 1 rows
+      0.7 ms  SELECT time, temp FROM readings WHERE time >= 1768222000 AND machine = 3               -> 225 rows
+    154.8 ms  SELECT time, temp FROM readings ORDER BY temp DESC LIMIT 5                             -> 5 rows
+  reopen:  90.1 ms (scans the whole log, rebuilds the key index); engine memory 266328 bytes

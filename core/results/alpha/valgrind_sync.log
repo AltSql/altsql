@@ -1,0 +1,20 @@
+==7356== Memcheck, a memory error detector
+==7356== Copyright (C) 2002-2022, and GNU GPL'd, by Julian Seward et al.
+==7356== Using Valgrind-3.22.0 and LibVEX; rerun with -h for copyright info
+==7356== Command: ./build/test_sync
+==7356== 
+  outage: gateway had rows 1..1990, sensor still had 3053.. when the link came back
+  sensor keeps 462 raw rows (rolled over 5630); gateway has 4938
+  summary gateway has 83 minute rows, no raw rows
+  link to raw gateway: 147032 bytes in 543 batches (48 lost, 43 acks lost)
+  link to summary gateway: 5772 bytes in 96 batches (4 lost, 5 acks lost)
+test_sync: 9340 checks, 0 failed
+==7356== 
+==7356== HEAP SUMMARY:
+==7356==     in use at exit: 0 bytes in 0 blocks
+==7356==   total heap usage: 27 allocs, 27 frees, 1,656,696 bytes allocated
+==7356== 
+==7356== All heap blocks were freed -- no leaks are possible
+==7356== 
+==7356== For lists of detected and suppressed errors, rerun with: -s
+==7356== ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)

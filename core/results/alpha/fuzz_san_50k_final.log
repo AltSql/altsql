@@ -1,0 +1,2 @@
+  50000 mutated SQL statements, 50000 sync batches, 12500 text imports: no crash, database intact
+test_fuzz: 137713 checks, 0 failed

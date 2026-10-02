@@ -1,0 +1,10 @@
+SQLite 3.45.1 benchmark: 1000000 rows (file build/bench_sqlite.db)
+  insert:  0.41 s for 1000000 rows = 2437030 rows/s (one transaction); 22.9 bytes/row on disk
+  SQL:
+    386.3 ms  SELECT time / 3600 AS hour, COUNT(*), AVG(temp), MIN(temp), MAX(temp) FROM readings GROUP BY hour -> 278 rows
+    260.9 ms  SELECT machine, AVG(temp) FROM readings GROUP BY machine ORDER BY machine              -> 16 rows
+     41.4 ms  SELECT COUNT(*) FROM readings WHERE temp > 29.5                                        -> 1 rows
+     32.1 ms  SELECT time, temp FROM readings WHERE time >= 1768222000 AND machine = 3               -> 225 rows
+     61.3 ms  SELECT time, temp FROM readings ORDER BY temp DESC LIMIT 5                             -> 5 rows
+  index on time: built in 230 ms; the query again:
+      0.2 ms  SELECT time, temp FROM readings WHERE time >= 1768222000 AND machine = 3               -> 225 rows
