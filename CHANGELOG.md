@@ -1,5 +1,60 @@
 # Changelog
 
+## 0.3.0-alpha (5 October 2026)
+
+- **AltSql DB 0.3.0-alpha.**
+  - **Statement savepoints.** Inside the caller's transaction, a statement
+    that fails partway (a refused row, a NULL for a column, a value a UNIQUE
+    index already has, a statement out of SQL memory) is taken back, and the
+    transaction goes on. 0.2 failed the whole transaction. The savepoint keeps
+    the pages the statement changes that the transaction wrote before it, in
+    the handle's SQL memory; a statement that succeeds leaves the file exactly
+    as it would have without one. If a statement needs more room than half
+    the SQL memory free when it starts, or the file fails it (I/O, damage),
+    the failure fails the transaction, as in 0.2. Statements in a
+    transaction of their own need no savepoint and cost nothing more.
+  - **Secondary indexes.** `CREATE [UNIQUE] INDEX [IF NOT EXISTS] name ON
+    table (col, ...)` and `DROP INDEX [IF EXISTS] name` in SQL;
+    `altsql_db_index_create` and `altsql_db_index_drop` directly (both call
+    one internal function). Up to 8 indexes a table, 4 columns an index. The
+    rows already in the table are indexed when the index is made. Every
+    writer keeps them through the one row-write path: the row calls, SQL,
+    DROP TABLE and sync, synced tables included (indexes there are not
+    UNIQUE). A UNIQUE index refuses a row whose values another row has, from
+    INSERT, INSERT OR REPLACE of another row, UPDATE and the row calls
+    alike (`ALTSQL_EXISTS`).
+  - **Two new plans:** index lookup (every indexed column fixed by =) and
+    index range (the first ones fixed, then a range on the next). An index is
+    read when it fixes more than the primary key; the primary key wins a
+    tie; an UPDATE doesn't read through an index whose columns it sets.
+    EXPLAIN names the index.
+  - **Index cursors:** `altsql_db_index_seek` and `altsql_db_index_last` give
+    rows in index order, read with `altsql_db_row_read`. `altsql_db_table_info`
+    lists a table's indexes.
+  - **The checker** (`altsql_db_check`) walks each index against its table,
+    both ways, under the header it checks; the report counts indexes and
+    their entries.
+  - **File format version 3** (the catalog knows indexes). 0.3 opens version
+    2 files and writes version 3.
+  - **Fixed:** an SQL read whose fixed text key values came to more than
+    about 60 bytes could stop early and miss rows; a plan built from very long
+    text values could write past its buffer.
+  - **API changes:** `altsql_db_cursor`, `altsql_db_check_report` and
+    `altsql_db_tableinfo` gain fields: recompile.
+  - **Tests:** `test_savepoint` and `test_index` are new; the interface test
+    runs with indexes made both ways; the crash matrix and fault injection
+    gain an SQL workload with three indexes and a failing statement in every
+    transaction; the SQLite comparison runs with indexes; the fuzzer makes
+    indexes and runs statements inside transactions; 56 planted bugs (19 new),
+    all caught.
+  - **The shell:** `.schema` shows a table's indexes, `.check` reports them.
+- **AltSql Core 0.1.0-alpha**, the engine, is unchanged.
+- **The browser demo** in `demos/db/` keeps an index on (machine, temp) as the
+  devices sync, and asks one machine's readings through it
+  (`app/engine-db.v3.js`).
+- **Binaries:** both shells for Linux x86-64, statically linked, in
+  `releases/v0.3.0-alpha/` with the release notes and checksums.
+
 ## 0.2.0-alpha (5 October 2026)
 
 AltSql now focuses on two products, both open source under the Apache

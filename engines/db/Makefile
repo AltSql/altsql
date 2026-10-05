@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # AltSql DB prototype
 #   make            the tests
-#   make test       unit and model tests, tables, sync from Core devices, SQL, the interface test, crash matrix, fault injection
+#   make test       unit and model tests, tables, sync from Core devices, SQL, the interface test, statement savepoints, secondary indexes, crash matrix, fault injection
 #   make sanitize   the same under AddressSanitizer and UBSan (quick settings)
 #   make valgrind   unit, model, table, sync and SQL tests under Valgrind (quick settings)
 #   make strict     every warning an error, gcc and clang
@@ -18,7 +18,7 @@ WARN     = -std=c99 -pedantic -Wall -Wextra -Wshadow
 DEFS     = -D_POSIX_C_SOURCE=200809L
 INC      = -I$(CORE)/dist -I. -Itests
 SAN      = -O1 -g -fsanitize=address,undefined,float-cast-overflow -fno-omit-frame-pointer -fno-sanitize-recover=all
-TESTS    = build/test_db build/test_rows build/test_sync build/test_sql build/test_same build/test_crash build/test_fault
+TESTS    = build/test_db build/test_rows build/test_sync build/test_sql build/test_same build/test_savepoint build/test_index build/test_crash build/test_fault
 DEPS     = altsql_db.h tests/dbtest.h $(CORE)/dist/altsql.h
 
 all: $(TESTS)
@@ -38,23 +38,25 @@ test: $(TESTS)
 	./build/test_sync
 	./build/test_sql
 	./build/test_same
+	./build/test_savepoint
+	./build/test_index
 	./build/test_crash
 	./build/test_fault
 
 sanitize: | build
-	for t in test_db test_rows test_sync test_sql test_same test_crash test_fault; do \
+	for t in test_db test_rows test_sync test_sql test_same test_savepoint test_index test_crash test_fault; do \
 	  $(CC) $(WARN) $(DEFS) $(SAN) $(INC) -o build/$$t.san tests/$$t.c -lm && ./build/$$t.san quick || exit 1; \
 	done
 
 valgrind: | build
-	for t in test_db test_rows test_sync test_sql test_same; do \
+	for t in test_db test_rows test_sync test_sql test_same test_savepoint test_index; do \
 	  $(CC) $(WARN) $(DEFS) -O1 -g $(INC) -o build/$$t.vg tests/$$t.c -lm && \
 	  valgrind --error-exitcode=9 --leak-check=full ./build/$$t.vg quick || exit 1; \
 	done
 
 strict: | build
 	for c in gcc clang; do \
-	  for t in test_db test_rows test_sync test_sql test_same; do \
+	  for t in test_db test_rows test_sync test_sql test_same test_savepoint test_index; do \
 	    $$c $(WARN) -Werror $(DEFS) -O2 $(INC) -o build/strict_$${c}_$$t tests/$$t.c -lm || exit 1; \
 	  done; \
 	  $$c $(WARN) -Werror $(DEFS) -O2 $(INC) -o build/strict_$${c}_shell tools/shell.c -lm || exit 1; \

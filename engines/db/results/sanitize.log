@@ -1,7 +1,7 @@
-for t in test_db test_rows test_sync test_sql test_same test_crash test_fault; do \
+for t in test_db test_rows test_sync test_sql test_same test_savepoint test_index test_crash test_fault; do \
   cc -std=c99 -pedantic -Wall -Wextra -Wshadow -D_POSIX_C_SOURCE=200809L -O1 -g -fsanitize=address,undefined,float-cast-overflow -fno-omit-frame-pointer -fno-sanitize-recover=all -I../../core/dist -I. -Itests -o build/$t.san tests/$t.c -lm && ./build/$t.san quick || exit 1; \
 done
-AltSql DB 0.2.0-alpha: unit and model tests
+AltSql DB 0.3.0-alpha: unit and model tests
   basics: ok
   POSIX file and lock: ok
   append: 100,000 keys in order -> 723 pages, depth 3
@@ -9,18 +9,18 @@ AltSql DB 0.2.0-alpha: unit and model tests
   damaged header: each of 44 bytes changed in turn, the file opens at the commit before: ok
   model tests: 36 runs, 12 seeds, page sizes 512, 1024 and 4096: ok
 all passed
-AltSql DB 0.2.0-alpha: tables
+AltSql DB 0.3.0-alpha: tables
   key encodings sort as their values: ok
   real, float and text keys in order; caller errors: ok
   model runs: 4 seeds, 512 and 4096-byte pages: ok
 all passed
-AltSql DB 0.2.0-alpha: sync from AltSql Core devices
+AltSql DB 0.3.0-alpha: sync from AltSql Core devices
   six devices, 40 rounds, batches of 64 to 3,064 bytes: 6116 rows stored as sent; resends, stale, cut and damaged batches: ok
   power cuts on the gateway during sync: 89 cuts, 623 writes in the session; every device complete after resending: ok
   sync in order: 8 runs, 4 devices each sending up to 4 batches ahead: 8888 batches sent, 8908 delivered, 507 lost on the link, 527 delivered twice, 9312 out of order, 3529 refused as gaps; every record applied exactly once
   the same 8 runs with every batch claiming position 0, as 0.1 assumed: 16109 records lost
 all passed
-AltSql DB 0.2.0-alpha: SQL on the tree
+AltSql DB 0.3.0-alpha: SQL on the tree
   Core's SQL and AltSql DB's: 30 fixed statements and 100 random ones, the same answers: ok
   plans: point lookup reads 1 row, range scans only their range, 150 random narrowings return a full scan's rows: ok
   INSERT: all or nothing, duplicate keys refused, OR REPLACE, named columns; errors keep a transaction usable: ok
@@ -29,26 +29,51 @@ AltSql DB 0.2.0-alpha: SQL on the tree
   UPDATE (in place and of keys), DELETE (tables and synced retention), DROP TABLE: rules, rollback, no pages lost: ok
   prepared statements: parameters, batches by key and by skipping, INSERT, UPDATE and DELETE, two at once, rules: ok
 all passed
-AltSql DB 0.2.0-alpha: the interface test, SQL text against direct calls
-  seed 1: 2000 steps, t1 178 rows, 118784-byte files identical, 835 commits
-  seed 2: 2000 steps, t1 152 rows, 143360-byte files identical, 821 commits
-  seed 3: 2000 steps, t1 169 rows, 131072-byte files identical, 860 commits
-  seed 4: 2000 steps, t1 158 rows, 135168-byte files identical, 790 commits
-  8000 steps: 5029 writes, 1152 reads, 1816 refusals, 156 table drops and creations, 594 transactions, 241 whole-table comparisons
+AltSql DB 0.3.0-alpha: the interface test, SQL text against direct calls
+  seed 1: 2000 steps, t1 169 rows, 4 indexes with 746 entries, 335872-byte files identical, 828 commits
+  seed 2: 2000 steps, t1 167 rows, 4 indexes with 762 entries, 442368-byte files identical, 845 commits
+  seed 3: 2000 steps, t1 159 rows, 3 indexes with 737 entries, 319488-byte files identical, 862 commits
+  seed 4: 2000 steps, t1 167 rows, 3 indexes with 458 entries, 417792-byte files identical, 792 commits
+  8000 steps: 4908 writes, 1449 reads, 1363 refusals, 184 table and index drops and creations, 576 transactions, 245 whole-table comparisons
   same answers, same refusals code for code, same rows, identical files
 test_same: all checks passed
-AltSql DB 0.2.0-alpha: crash matrix
+AltSql DB 0.3.0-alpha: statement savepoints
+  a cache of 6796 pages of 1 KiB: 94 failed statements kept 2299 pages
+  a cache of 31 pages of 512 bytes: 94 failed statements kept 4528 pages, 81 of them read pages back from the file
+  8 seeds, 15 rounds each: 27745 statements on both files, 188 failed on one and taken back (36 of them over every row), 101 commits, 19 rollbacks
+  after every failed statement both files held the same rows; 4 runs with a cache that holds them ended byte for byte the same
+  a savepoint too small for the statement: the failure fails the transaction, and a rollback brings back the last commit
+test_savepoint: all checks passed
+AltSql DB 0.3.0-alpha: secondary indexes
+  6 runs (pages of 512 bytes to 4 KB, caches large and small): 9000 steps, 1035 transactions, 263 refusals, 652 index makes and drops
+  4199 queries through their plans against full scans (1550 read an index), 531 checks, 41894 rows walked by index cursors,
+  5058 rows read by a prepared SELECT through an index, batch after batch, as exec reads them
+  467 statements failed partway inside transactions: tables and indexes as before each time
+  UNIQUE, names, limits (8 indexes, 4 columns, keys of the page size), DDL in transactions: as documented
+  a synced table: an index made after the first rows, kept through 18 batches from 3 devices and a retention DELETE; 392 rows of machine 5 read through it
+  a version 2 file (0.2) opens, reads, takes an index and is written as version 3
+test_index: all checks passed
+AltSql DB 0.3.0-alpha: crash matrix
   seed 1, 512-byte pages, 30 transactions of 12 changes: 357 cuts, all clean
   seed 2, 512-byte pages, 30 transactions of 12 changes: 375 cuts, all clean
   seed 3, 4096-byte pages, 14 transactions of 10 changes: 82 cuts, all clean
   seed 4, 1024-byte pages, 20 transactions of 25 changes: 304 cuts, all clean
   1118 cuts: 1077 opened at the last commit, 41 at the commit under way
+  SQL with 3 indexes and a failing statement per transaction, seed 21, 512-byte pages, 14 transactions: 205 cuts, all clean
+  SQL with 3 indexes and a failing statement per transaction, seed 22, 4096-byte pages, 8 transactions: 32 cuts, all clean
+  SQL with 3 indexes and a failing statement per transaction, seed 23, 1024-byte pages, 10 transactions: 66 cuts, all clean
+  303 cuts: 286 opened at the last commit, 17 at the commit under way; the indexes checked against the table under both headers each time;
+  960 statements refused or failed partway and were taken back by their savepoints on the way
 all passed
-AltSql DB 0.2.0-alpha: fault injection
+AltSql DB 0.3.0-alpha: fault injection
   seed 11, 512-byte pages: 113 runs, each with one failing call, all clean
   seed 12, 512-byte pages: 121 runs, each with one failing call, all clean
   seed 13, 4096-byte pages: 33 runs, each with one failing call, all clean
   seed 14, 1024-byte pages: 99 runs, each with one failing call, all clean
   366 runs; 29 failed commits turned out to be on disk after all
+  SQL with 3 indexes, seed 31, 512-byte pages: 52 runs, each with one failing call, all clean
+  SQL with 3 indexes, seed 32, 4096-byte pages: 12 runs, each with one failing call, all clean
+  SQL with 3 indexes, seed 33, 1024-byte pages: 22 runs, each with one failing call, all clean
+  86 runs; 4 failed commits on disk after all; the indexes checked against the table after every run and reopen
 all passed
 exit 0

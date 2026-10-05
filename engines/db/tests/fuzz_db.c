@@ -5,7 +5,10 @@
 /*
  * AltSql DB fuzz target (libFuzzer). The first byte picks what the rest of
  * the input is:
- *   0  SQL for altsql_db_exec, on a file with three tables and rows
+ *   0  SQL for altsql_db_exec, on a file with three tables, their indexes and
+ *      rows; when the first byte is 5 to 9 (mod 10), inside a transaction,
+ *      each statement on its own, so a failed one is taken back by its
+ *      savepoint and the next goes on
  *   1  a prepared statement: the text up to a zero byte, then values to
  *      bind (a type byte and eight bytes each), stepped to the end
  *   2  a damaged file: a good file, then the input's (offset, byte) pairs
@@ -60,6 +63,7 @@ static const char *SETUP =
     "CREATE TABLE t1 (a INT, b INT, c REAL, d TEXT, PRIMARY KEY (a, b));"
     "CREATE TABLE t2 (k TEXT PRIMARY KEY, v INT, w FLOAT);"
     "CREATE TABLE t3 (x TIME, y LONG, z TEXT);"
+    "CREATE INDEX i1 ON t1 (d, c); CREATE UNIQUE INDEX i2 ON t2 (v); CREATE INDEX i3 ON t3 (z);"
     "INSERT INTO t1 VALUES (1, 1, 1.5, 'a'), (1, 2, -2.5, 'b'), (2, 1, 0, ''), (3, 7, 1e10, 'it''s');"
     "INSERT INTO t2 VALUES ('k1', 1, 1.25), ('k2', -5, 0), ('zz', 7, 2);"
     "INSERT INTO t3 VALUES (100, 1, 'x'), (100, 2, 'y'), (50, 3, 'z')";
@@ -142,7 +146,17 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
         memcpy(sql, data + 1, n);
         sql[n] = 0;
         if (!(db = fresh(&f, &r))) abort();
-        altsql_db_exec(db, sql, sink, NULL);
+        if ((data[0] / 5) & 1) {                         /* in a transaction, one statement at a time */
+            char *p = sql;
+            if (altsql_db_begin(db, 1) != ALTSQL_OK) abort();
+            while (p) {
+                char *e = strchr(p, ';');
+                if (e) *e = 0;
+                altsql_db_exec(db, p, sink, NULL);
+                p = e ? e + 1 : NULL;
+            }
+            if (altsql_db_commit(db) != ALTSQL_OK) altsql_db_rollback(db);
+        } else altsql_db_exec(db, sql, sink, NULL);
         must_check(db);
         altsql_db_close(db);
         break;

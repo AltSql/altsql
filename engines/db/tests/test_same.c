@@ -2,10 +2,12 @@
  * Copyright 2026 AltSql.com
  * SPDX-License-Identifier: Apache-2.0
  */
-/* AltSql DB: the interface test (0.2).
+/* AltSql DB: the interface test (0.2, with indexes since 0.3).
  * One random workload runs twice, on two files: once as SQL text through
  * altsql_db_exec, once as direct calls (row_insert, row_put, row_get, row_del,
- * table_create, table_drop). After every step the two must give the same
+ * table_create, table_drop, index_create, index_drop, index_seek). The tables
+ * have secondary indexes, one of them UNIQUE, made and dropped as the run goes
+ * on; SQL reads through them as the index cursors do. After every step the two must give the same
  * answer and the same refusal, code for code; every few hundred steps they
  * must hold the same rows. With a cache that holds the whole run, the two files
  * must come out identical byte for byte, since both interfaces end in the same
@@ -58,14 +60,26 @@ static int scan_hash(altsql_db *db, const char *table, int ncols, hsh *x) {
 }
 
 /* ---- the tables ---- */
-/* t1 (id int key, a long, r real, s text); t2 (k text, n int key, v float); t3 (k int key, v text), dropped and made again */
-static int t3_exists;
+/* t1 (id int key, a long, r real, s text) with indexes t1a (a) and t1s UNIQUE (s); t2 (k text,
+ * n int key, v float) with t2v (v, k); t3 (k int key, v text) with t3v (v), dropped and made
+ * again. t1a is dropped and made again too. */
+static int t3_exists, t1a_on;
 static int make_t3(int with_rows) {
-    int ra = altsql_db_exec(A, "CREATE TABLE t3 (k INT, v TEXT, PRIMARY KEY (k))", NULL, NULL);
+    int ra = altsql_db_exec(A, "CREATE TABLE t3 (k INT, v TEXT, PRIMARY KEY (k)); CREATE INDEX t3v ON t3 (v)", NULL, NULL);
     int rb = altsql_db_table_create(B, "t3", "k:int,v:text", "k");
     (void)with_rows;
+    if (rb == ALTSQL_OK) rb = altsql_db_index_create(B, "t3", "t3v", "v", 0);
     CHECK(ra == rb, "create t3: SQL %d, direct %d (%s | %s)", ra, rb, altsql_db_errmsg(A), altsql_db_errmsg(B));
     if (ra == ALTSQL_OK) t3_exists = 1;
+    g_ddl++;
+    return 0;
+}
+static int toggle_t1a(void) {
+    int ra, rb;
+    if (t1a_on) { ra = altsql_db_exec(A, "DROP INDEX t1a", NULL, NULL); rb = altsql_db_index_drop(B, "t1a"); }
+    else { ra = altsql_db_exec(A, "CREATE INDEX t1a ON t1 (a)", NULL, NULL); rb = altsql_db_index_create(B, "t1", "t1a", "a", 0); }
+    CHECK(ra == rb && ra == ALTSQL_OK, "t1a %s: SQL %d, direct %d (%s | %s)", t1a_on ? "drop" : "create", ra, rb, altsql_db_errmsg(A), altsql_db_errmsg(B));
+    t1a_on = !t1a_on;
     g_ddl++;
     return 0;
 }
@@ -150,13 +164,14 @@ static int step(uint32_t *s, int in_tx) {
             memcpy(keep, txt, sizeof keep);
             row[3] = vtext(keep);
             rb = altsql_db_row_put(B, "t1", row, 4);
-            CHECK(rb == ALTSQL_OK, "put after get: %d %s", rb, altsql_db_errmsg(B));
-            rb = 1;
+            CHECK(rb == ALTSQL_OK || rb == ALTSQL_EXISTS, "put after get: %d %s", rb, altsql_db_errmsg(B));
+            if (rb == ALTSQL_OK) rb = 1;
         } else {
             CHECK(rb == ALTSQL_NOTFOUND, "get: %d", rb);
             rb = 0;
         }
-        CHECK(ra == ALTSQL_OK && ca == (uint64_t)rb, "%s: SQL %d changed %llu, direct changed %d", sql, ra, (unsigned long long)ca, rb);
+        if (ra == ALTSQL_OK) CHECK(ca == (uint64_t)rb, "%s: SQL changed %llu, direct changed %d", sql, (unsigned long long)ca, rb);
+        else { CHECK(ra == rb, "%s: SQL %d (%s), direct %d", sql, ra, altsql_db_errmsg(A), rb); g_refusals++; }
         g_writes++;
     } else if (op < 85) {                                     /* SELECT by key, against row_get */
         altsql_value key = vint(id), row[4];
@@ -168,6 +183,24 @@ static int step(uint32_t *s, int in_tx) {
         if (rb == ALTSQL_OK) hrow(&y, 4, row, NULL);
         CHECK(ra == ALTSQL_OK && (rb == ALTSQL_OK || rb == ALTSQL_NOTFOUND), "%s: SQL %d, direct %d", sql, ra, rb);
         CHECK(x.rows == y.rows && x.h == y.h, "%s: SQL gave %ld rows, direct %ld, or other values", sql, x.rows, y.rows);
+        g_reads++;
+    } else if (op < 88) {                                     /* through an index: SQL's plan against the index cursor */
+        altsql_value key, row[4];
+        altsql_db_cursor c;
+        hsh x, y;
+        int byname = xs(s) % 2 || !t1a_on;                    /* t1s always, t1a while it is there */
+        if (byname) { key = vtext(txt); snprintf(sql, sizeof sql, "SELECT * FROM t1 WHERE s = '%s'", txt); }
+        else { key = vint(a % 1000); snprintf(sql, sizeof sql, "SELECT * FROM t1 WHERE a = %lld", (long long)(a % 1000)); }
+        x.h = y.h = 1469598103934665603ULL; x.rows = y.rows = 0;
+        ra = altsql_db_exec(A, sql, hrow, &x);
+        rb = altsql_db_index_seek(&c, B, byname ? "t1s" : "t1a", &key, 1);
+        while (rb == ALTSQL_OK) {
+            CHECK(altsql_db_row_read(&c, row, 4) == ALTSQL_OK, "row_read: %s", altsql_db_errmsg(B));
+            hrow(&y, 4, row, NULL);
+            rb = altsql_db_next(&c);
+        }
+        CHECK(ra == ALTSQL_OK && rb == ALTSQL_NOTFOUND, "%s: SQL %d, the index cursor %d (%s)", sql, ra, rb, altsql_db_errmsg(B));
+        CHECK(x.rows == y.rows && x.h == y.h, "%s: SQL gave %ld rows, the index %ld, or other values", sql, x.rows, y.rows);
         g_reads++;
     } else if (op < 90) {                                     /* refusals: a wrong type, a missing table */
         altsql_value row[4];
@@ -181,7 +214,8 @@ static int step(uint32_t *s, int in_tx) {
         CHECK(ra == rb && ra == ALTSQL_SCHEMA, "a missing table: SQL %d, direct %d", ra, rb);
         g_refusals += 2;
     } else if (op < 97) {                                     /* t3: rows, then sometimes dropped and made again */
-        if (!t3_exists) { if (!in_tx && make_t3(0)) return 1; }   /* DDL outside transactions, so the test knows what exists */
+        if (!in_tx && xs(s) % 8 == 0) { if (toggle_t1a()) return 1; }
+        else if (!t3_exists) { if (!in_tx && make_t3(0)) return 1; }   /* DDL outside transactions, so the test knows what exists */
         else if (xs(s) % 4 == 0 && !in_tx) {
             ra = altsql_db_exec(A, "DROP TABLE t3", NULL, NULL);
             rb = altsql_db_table_drop(B, "t3");
@@ -223,7 +257,12 @@ static int run_seed(uint32_t seed, long steps) {
     CHECK(ra == ALTSQL_OK, "create: %s", altsql_db_errmsg(A));
     CHECK(altsql_db_table_create(B, "t1", "id:int,a:long,r:real,s:text", "id") == ALTSQL_OK &&
           altsql_db_table_create(B, "t2", "k:text,n:int,v:float", "k,n") == ALTSQL_OK, "create direct: %s", altsql_db_errmsg(B));
+    ra = altsql_db_exec(A, "CREATE INDEX t1a ON t1 (a); CREATE UNIQUE INDEX t1s ON t1 (s); CREATE INDEX t2v ON t2 (v, k)", NULL, NULL);
+    CHECK(ra == ALTSQL_OK, "create indexes: %s", altsql_db_errmsg(A));
+    CHECK(altsql_db_index_create(B, "t1", "t1a", "a", 0) == ALTSQL_OK && altsql_db_index_create(B, "t1", "t1s", "s", 1) == ALTSQL_OK &&
+          altsql_db_index_create(B, "t2", "t2v", "v,k", 0) == ALTSQL_OK, "create indexes directly: %s", altsql_db_errmsg(B));
     t3_exists = 0;
+    t1a_on = 1;
     for (i = 0; i < steps; ) {
         if (xs(&s) % 10 == 0) {                               /* a transaction of a few steps, committed or rolled back */
             int n = 1 + (int)(xs(&s) % 8), j, back = xs(&s) % 4 == 0;
@@ -244,10 +283,11 @@ static int run_seed(uint32_t seed, long steps) {
         CHECK(scan_hash(A, "t1", 4, &x) == ALTSQL_OK && scan_hash(B, "t1", 4, &y) == ALTSQL_OK && x.h == y.h && x.rows == y.rows, "t1 at the end");
         CHECK(scan_hash(A, "t2", 3, &x) == ALTSQL_OK && scan_hash(B, "t2", 3, &y) == ALTSQL_OK && x.h == y.h && x.rows == y.rows, "t2 at the end");
         CHECK(altsql_db_check(A, -1, g_chk, g_chksize, &r1) == ALTSQL_OK && altsql_db_check(B, -1, g_chk, g_chksize, &r2) == ALTSQL_OK, "check");
+        CHECK(r1.indexes == r2.indexes && r1.index_entries == r2.index_entries && r1.indexes >= 3, "indexes: %u and %u", r1.indexes, r2.indexes);
         CHECK(fa.r.size == fb.r.size && memcmp(fa.mem, fb.mem, (size_t)fa.r.size) == 0,
               "seed %u: the two files differ (%llu and %llu bytes)", seed, (unsigned long long)fa.r.size, (unsigned long long)fb.r.size);
-        printf("  seed %u: %ld steps, t1 %ld rows, %llu-byte files identical, %llu commits\n", seed, steps, x.rows,
-               (unsigned long long)fa.r.size, (unsigned long long)r1.txn);
+        printf("  seed %u: %ld steps, t1 %ld rows, %u indexes with %llu entries, %llu-byte files identical, %llu commits\n", seed, steps, x.rows,
+               r1.indexes, (unsigned long long)r1.index_entries, (unsigned long long)fa.r.size, (unsigned long long)r1.txn);
     }
     altsql_db_close(A);
     altsql_db_close(B);
@@ -263,7 +303,7 @@ int main(int argc, char **argv) {
     printf("AltSql DB %s: the interface test, SQL text against direct calls\n", ALTSQL_DB_VERSION);
     if (!g_chk && !(g_chk = (uint8_t *)malloc(g_chksize))) return 1;
     for (i = 0; i < 4; i++) { g_seed = seeds[i]; if (run_seed(seeds[i], steps)) { printf("FAILED\n"); return 1; } }
-    printf("  %ld steps: %ld writes, %ld reads, %ld refusals, %ld table drops and creations, %ld transactions, %ld whole-table comparisons\n",
+    printf("  %ld steps: %ld writes, %ld reads, %ld refusals, %ld table and index drops and creations, %ld transactions, %ld whole-table comparisons\n",
            g_steps, g_writes, g_reads, g_refusals, g_ddl, g_txns, g_compares);
     printf("  same answers, same refusals code for code, same rows, identical files\n");
     printf("test_same: all checks passed\n");

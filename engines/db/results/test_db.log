@@ -1,4 +1,4 @@
-AltSql DB 0.2.0-alpha: unit and model tests
+AltSql DB 0.3.0-alpha: unit and model tests
   basics: ok
   POSIX file and lock: ok
   append: 100,000 keys in order -> 723 pages, depth 3

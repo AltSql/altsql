@@ -1,0 +1,10 @@
+AltSql DB 0.3.0-alpha: secondary indexes
+  6 runs (pages of 512 bytes to 4 KB, caches large and small): 72000 steps, 8425 transactions, 1377 refusals, 4877 index makes and drops
+  33574 queries through their plans against full scans (13102 read an index), 4248 checks, 307670 rows walked by index cursors,
+  17067 rows read by a prepared SELECT through an index, batch after batch, as exec reads them
+  3711 statements failed partway inside transactions: tables and indexes as before each time
+  UNIQUE, names, limits (8 indexes, 4 columns, keys of the page size), DDL in transactions: as documented
+  a synced table: an index made after the first rows, kept through 18 batches from 3 devices and a retention DELETE; 392 rows of machine 5 read through it
+  a version 2 file (0.2) opens, reads, takes an index and is written as version 3
+test_index: all checks passed
+exit 0

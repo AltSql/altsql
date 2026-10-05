@@ -1,0 +1,8 @@
+AltSql DB 0.3.0-alpha: statement savepoints
+  a cache of 6796 pages of 1 KiB: 381 failed statements kept 8644 pages
+  a cache of 31 pages of 512 bytes: 380 failed statements kept 19100 pages, 357 of them read pages back from the file
+  8 seeds, 60 rounds each: 30794 statements on both files, 761 failed on one and taken back (126 of them over every row), 392 commits, 88 rollbacks
+  after every failed statement both files held the same rows; 4 runs with a cache that holds them ended byte for byte the same
+  a savepoint too small for the statement: the failure fails the transaction, and a rollback brings back the last commit
+test_savepoint: all checks passed
+exit 0

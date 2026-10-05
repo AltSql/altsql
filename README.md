@@ -8,7 +8,7 @@ records are the same on both, byte for byte, so there's nothing to translate
 in between. The device keeps working and deciding when the network is gone,
 and it sends less.
 
-**Status: 0.2.0-alpha** (AltSql DB 0.2.0-alpha, AltSql Core 0.1.0-alpha).
+**Status: 0.3.0-alpha** (AltSql DB 0.3.0-alpha, AltSql Core 0.1.0-alpha).
 Written to prove the design and measure it.
 Everything runs on a PC in simulation; nothing has run on a microcontroller
 or a gateway yet. File formats may still change. Not for production.
@@ -18,13 +18,13 @@ or a gateway yet. File formats may still change. Not for production.
 | Folder | What it is |
 |---|---|
 | [`core/`](core/) | **AltSql Core**, the engine: key-value and time-series on the device, SQL on the gateway. The whole engine is one C99 file, `core/dist/altsql.h`. |
-| [`engines/db/`](engines/db/) | **AltSql DB**, the database for a gateway that serves a whole fleet: one file for every device, read by key with no SQL step, or with SQL. Built on AltSql Core. |
+| [`engines/db/`](engines/db/) | **AltSql DB**, the database for a gateway that serves a whole fleet: one file for every device, read by key with no SQL step, or with SQL, with secondary indexes and statement savepoints. Built on AltSql Core. |
 | [`demos/db/`](demos/db/) | The AltSql DB browser demo. Open `demos/db/app/index.html`; it runs straight from the folder. |
 
 Two command-line shells come with them: `altsql` for a device's database
 (`core/tools/cli.c`) and `altsql-db` for a gateway's (`engines/db/tools/shell.c`).
 Ready-made binaries for Linux x86-64 are in
-[`releases/v0.2.0-alpha/`](releases/v0.2.0-alpha/), with the release notes.
+[`releases/v0.3.0-alpha/`](releases/v0.3.0-alpha/), with the release notes.
 
 ## Build and test
 

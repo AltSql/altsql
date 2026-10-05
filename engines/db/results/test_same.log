@@ -1,9 +1,9 @@
-AltSql DB 0.2.0-alpha: the interface test, SQL text against direct calls
-  seed 1: 25000 steps, t1 880 rows, 757760-byte files identical, 9524 commits
-  seed 2: 25000 steps, t1 910 rows, 1499136-byte files identical, 9638 commits
-  seed 3: 25000 steps, t1 903 rows, 1110016-byte files identical, 9763 commits
-  seed 4: 25000 steps, t1 904 rows, 1118208-byte files identical, 9511 commits
-  100000 steps: 52259 writes, 15092 reads, 32331 refusals, 1944 table drops and creations, 7375 transactions, 2996 whole-table comparisons
+AltSql DB 0.3.0-alpha: the interface test, SQL text against direct calls
+  seed 1: 25000 steps, t1 882 rows, 4 indexes with 1501 entries, 2752512-byte files identical, 9706 commits
+  seed 2: 25000 steps, t1 906 rows, 3 indexes with 1236 entries, 3665920-byte files identical, 9663 commits
+  seed 3: 25000 steps, t1 904 rows, 3 indexes with 1223 entries, 3407872-byte files identical, 9570 commits
+  seed 4: 25000 steps, t1 899 rows, 3 indexes with 1228 entries, 3002368-byte files identical, 9592 commits
+  100000 steps: 51704 writes, 18032 reads, 27019 refusals, 2245 table and index drops and creations, 7265 transactions, 2945 whole-table comparisons
   same answers, same refusals code for code, same rows, identical files
 test_same: all checks passed
 exit 0

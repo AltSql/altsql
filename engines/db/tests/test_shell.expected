@@ -191,6 +191,46 @@ error: four is not a number
 $ altsql-db [gw.db] [.row get nosuch 1]
 error: no such table
 (exit 1)
+
+## secondary indexes: made, read, kept, refused, checked, dropped
+$ altsql-db [gw.db] [CREATE INDEX notes_score ON notes (score);] [CREATE UNIQUE INDEX notes_body ON notes (body);] [.schema notes]
+notes (id:int,body:text,score:float) key (id)
+  index notes_score (score)
+  unique index notes_body (body)
+$ altsql-db [gw.db] [EXPLAIN SELECT * FROM notes WHERE score > 1.6;] [SELECT * FROM notes WHERE score > 1.6;]
+plan|detail
+index range|notes, index notes_score, range on score
+id|body|score
+1|first, replaced|1.75
+3|third|3.25
+$ altsql-db [gw.db] [INSERT INTO notes VALUES (9, 'third', 0.5);]
+error: another row has those values in a UNIQUE index
+(exit 1)
+$ altsql-db [gw.db] [.row put notes 9 third 0.5]
+error: another row has those values in a UNIQUE index
+(exit 1)
+$ altsql-db [gw.db] [.row put notes 9 ninth 0.5] [SELECT * FROM notes WHERE body = 'ninth';]
+id|body|score
+9|ninth|0.5
+$ altsql-db [gw.db] [CREATE INDEX temps_machine ON temps (machine);] [EXPLAIN SELECT * FROM temps WHERE machine = 1;]
+plan|detail
+index lookup|temps, index temps_machine, fixed: machine
+$ altsql-db [gw.db] [SELECT device, time, temp FROM temps WHERE machine = 1 ORDER BY device, time;]
+device|time|temp
+7|1700000001|21.5
+7|1700000003|21.75
+7|1700000005|22.0
+9|1700000001|21.5
+9|1700000003|21.75
+9|1700000005|22.0
+$ altsql-db [gw.db] [.check]
+ok, N entries, N pages, 3 indexes with 16 entries, each one's row there
+$ altsql-db [gw.db] [DROP INDEX notes_score;] [.schema notes]
+notes (id:int,body:text,score:float) key (id)
+  unique index notes_body (body)
+$ altsql-db [gw.db] [DROP INDEX notes_score;]
+error: no such index
+(exit 1)
 $ altsql-db [gw.db] [.drop temps]
 error: a synced table stays while devices send to it: DELETE its rows
 (exit 1)
@@ -266,16 +306,16 @@ error: no such table: nope
 
 ## the file is sound, and .help lists the commands
 $ altsql-db [gw.db] [.check]
-ok, N entries, N pages
+ok, N entries, N pages, 1 index with 10 entries, each one's row there
 $ altsql-db [gw.db] [.help]
 .help                           list the commands
 .quit                           leave
 .exit                           leave
 .version                        show the versions
 .tables                         list the tables; (synced) marks those filled by sync
-.schema [TABLE]                 columns with their types, and the primary key
+.schema [TABLE]                 columns with their types, the primary key and the indexes
 .info                           the file, the cache and the memory in figures
-.check                          check every page of the file
+.check                          check every page of the file, and each index against its table
 .begin                          start a write transaction
 .commit                         make the transaction final
 .rollback                       undo the transaction
@@ -290,5 +330,6 @@ $ altsql-db [gw.db] [.help]
 .drop TABLE                     drop a table with its rows
 .sync DEVICE AFTER_SEQ FILE     apply a sync batch file that a Core device wrote
 .state DEVICE                   the last sequence number applied for a device
-SQL: CREATE TABLE, DROP TABLE, INSERT, UPDATE, DELETE, SELECT ... WHERE / GROUP BY /
-     HAVING / ORDER BY / LIMIT; end with ';'. Words with spaces: 'like this' or "this".
+SQL: CREATE TABLE, DROP TABLE, CREATE [UNIQUE] INDEX, DROP INDEX, INSERT, UPDATE, DELETE,
+     SELECT ... WHERE / GROUP BY / HAVING / ORDER BY / LIMIT, EXPLAIN SELECT; end with ';'.
+     Words with spaces: 'like this' or "this".

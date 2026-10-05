@@ -14,7 +14,8 @@
 #
 # ALTSQL_SHELL and ALTSQL_DB_SHELL name the two programs (full paths).
 # One line of the log is made steady before the comparison: .check prints the entries
-# and pages of the file, which follow the layout of the engine, so those numbers become N.
+# and pages of the file, which follow the layout of the engine, so those numbers become N
+# (the index entries it prints after them are one for each row, so they stay).
 
 here=$(cd "$(dirname "$0")" && pwd) || exit 1
 CORE_SH=${ALTSQL_SHELL:-$here/../../../core/build/altsql}
@@ -202,6 +203,18 @@ gw ".row del notes 2" ".row get notes 2"
 gw ".row put notes 4 only"
 gw ".row put notes four x 1"
 gw ".row get nosuch 1"
+
+say "secondary indexes: made, read, kept, refused, checked, dropped"
+gw "CREATE INDEX notes_score ON notes (score);" "CREATE UNIQUE INDEX notes_body ON notes (body);" ".schema notes"
+gw "EXPLAIN SELECT * FROM notes WHERE score > 1.6;" "SELECT * FROM notes WHERE score > 1.6;"
+gw "INSERT INTO notes VALUES (9, 'third', 0.5);"
+gw ".row put notes 9 third 0.5"
+gw ".row put notes 9 ninth 0.5" "SELECT * FROM notes WHERE body = 'ninth';"
+gw "CREATE INDEX temps_machine ON temps (machine);" "EXPLAIN SELECT * FROM temps WHERE machine = 1;"
+gw "SELECT device, time, temp FROM temps WHERE machine = 1 ORDER BY device, time;"
+gw .check
+gw "DROP INDEX notes_score;" ".schema notes"
+gw "DROP INDEX notes_score;"
 gw ".drop temps"
 gw ".drop notes" ".tables"
 gw ".row get notes 1"
@@ -253,7 +266,7 @@ esac
 
 # ---- compare ---------------------------------------------------------------------------------------
 
-sed 's/^ok, [0-9][0-9]* entries, [0-9][0-9]* pages$/ok, N entries, N pages/' "$OUT" >"$T/log.norm"
+sed 's/^ok, [0-9][0-9]* entries, [0-9][0-9]* pages/ok, N entries, N pages/' "$OUT" >"$T/log.norm"
 if [ -n "${UPDATE:-}" ]; then
     cp "$T/log.norm" "$here/test_shell.expected" || exit 1
     echo "test_shell: wrote $here/test_shell.expected"

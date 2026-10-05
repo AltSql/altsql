@@ -9,7 +9,9 @@
  * device's new position (altsql_db_sync_apply) and reports that position back.
  *
  * The page then asks the gateway questions two ways: SQL, through Core's own
- * parser over the tree, and the direct path, with no SQL at all. It shows the
+ * parser over the tree, and the direct path, with no SQL at all. The readings'
+ * table has a secondary index on (machine, temp), made after the first hour and
+ * kept by every batch since; a question on one machine reads through it. It shows the
  * bytes the gateway stored beside the bytes the device wrote, and it cuts the
  * gateway's power in the middle of a commit, opens the file again, checks it
  * page by page, lets the devices resend, and counts what was lost.
@@ -165,6 +167,10 @@ API(demo_init) const char *demo_init(void) {
     if (gw_open(1)) { o("{\"ok\":false,\"error\":\"gateway: %s\"}", altsql_db_errmsg(G)); return done(); }
     for (i = 0; i < NDEV; i++) if (dev_open(&D[i], i)) { o("{\"ok\":false,\"error\":\"device %d\"}", i); return done(); }
     for (k = 0; k < 360; k++) if (tick()) { o("{\"ok\":false,\"error\":\"%s\"}", altsql_db_errmsg(G)); return done(); }
+    if (altsql_db_exec(G, "CREATE INDEX temps_machine ON temps (machine, temp)", NULL, NULL)) {
+        o("{\"ok\":false,\"error\":\"index: %s\"}", altsql_db_errmsg(G));
+        return done();
+    }
     o("{\"ok\":true,\"devices\":%d}", NDEV);
     return done();
 }
@@ -387,6 +393,8 @@ int main(void) {
     strcpy(IN, "SELECT device, COUNT(*), AVG(temp) FROM temps WHERE time >= 1767228600 GROUP BY device");
     printf("%s\n", demo_sql((int)strlen(IN), 1));
     strcpy(IN, "SELECT * FROM temps WHERE device = 105 AND time > 1767229200");
+    printf("%s\n", demo_sql((int)strlen(IN), 1));
+    strcpy(IN, "SELECT device, time, temp FROM temps WHERE machine = 2 AND temp > 27.5 ORDER BY temp DESC LIMIT 10");
     printf("%s\n", demo_sql((int)strlen(IN), 1));
     strcpy(IN, "SELECT key, value, COUNT(*) FROM kv GROUP BY key, value");
     printf("%s\n", demo_sql((int)strlen(IN), 1));

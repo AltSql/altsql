@@ -15,6 +15,9 @@
  * Core keeps the fraction and SQLite drops it), ORDER BY made total with every
  * column, and key changes that cannot meet another row's key part way
  * through (SQLite checks each row as it goes, AltSql DB at the end).
+ * Since 0.3 both engines carry the same secondary indexes, one of them UNIQUE
+ * over a primary key column (so it never refuses a row on one engine only),
+ * and every 1,000 statements one index is dropped and made again on both.
  *   test_vs_sqlite          four seeds of 25,000 statements
  *   test_vs_sqlite quick    one seed of 3,000
  * Needs SQLite: sh tools/fetch_third_party.sh, then make vs-sqlite. */
@@ -150,6 +153,27 @@ static const tab TABS[3] = {
 };
 static uint32_t rnd(uint32_t n) { return xs(&g_s) % n; }
 static const char *WORDS[] = { "a", "b", "c", "d", "e", "f", "g", "h", "ab", "ba", "Abc", "", "zz", "it''s", "x y" };
+/* The indexes, the same on both engines; made after each table's first rows. */
+static const char *const INDEXES[6][2] = {
+    { "t1c",  "CREATE INDEX t1c ON t1 (c)" },
+    { "t1da", "CREATE INDEX t1da ON t1 (d, a)" },
+    { "t2vw", "CREATE INDEX t2vw ON t2 (v, w)" },
+    { "t2kv", "CREATE UNIQUE INDEX t2kv ON t2 (k, v)" },
+    { "t3y",  "CREATE INDEX t3y ON t3 (y)" },
+    { "t3zx", "CREATE INDEX t3zx ON t3 (z, x)" },
+};
+static unsigned long g_index_ddl, g_index_plans;
+static int plan_cb(void *ctx, int n, const altsql_value *v, const char *const *names) {
+    (void)names;
+    if (n >= 1 && v[0].type == ALTSQL_TEXT && v[0].len >= 5 && !memcmp(v[0].u.s, "index", 5)) (*(unsigned long *)ctx)++;
+    return 0;
+}
+static int both_ddl(const char *sql) {
+    int r1 = altsql_db_exec(g_db, sql, NULL, NULL), r2 = sqlite3_exec(g_sq, sql, NULL, NULL, NULL);
+    CHECK(r1 == ALTSQL_OK && r2 == SQLITE_OK, "%s: AltSql DB %d (%s), SQLite %d (%s)", sql, r1, altsql_db_errmsg(g_db), r2, sqlite3_errmsg(g_sq));
+    g_index_ddl++;
+    return 0;
+}
 
 static void lit(char *o, int type) {
     if (type == TI) sprintf(o, "%d", (int)rnd(60) - 10);
@@ -366,12 +390,16 @@ static int run_seed(uint32_t seed, int nstmt) {
             g_loads++;
             if (!both_write(sql, &TABS[t])) { CHECK(0, "seed %u: loading %s", seed, TABS[t].name); }
         }
+        if (both_ddl(INDEXES[2 * t][1]) || both_ddl(INDEXES[2 * t + 1][1])) return 1;
     }
     for (i = 0; i < nstmt; i++) {
         const tab *T = &TABS[rnd(3)];
         if (rnd(4)) {
             int ordered = gen_select(T, sql);
+            char ex[4200];
             g_rand_selects++;
+            snprintf(ex, sizeof ex, "EXPLAIN %s", sql);           /* how often an index serves it */
+            altsql_db_exec(g_db, ex, plan_cb, &g_index_plans);
             if (!both_select(sql, ordered)) { CHECK(0, "seed %u statement %d differs", seed, i); }
         } else {
             gen_write(T, sql);
@@ -379,6 +407,11 @@ static int run_seed(uint32_t seed, int nstmt) {
             if (!both_write(sql, T)) { CHECK(0, "seed %u statement %d differs", seed, i); }
         }
         if (i % 500 == 499 && check_slots(g_db, 1)) return 1;
+        if (i % 1000 == 999) {                                /* one index dropped and made again on both */
+            int x = (int)rnd(6);
+            snprintf(sql, sizeof sql, "DROP INDEX %s", INDEXES[x][0]);
+            if (both_ddl(sql) || both_ddl(INDEXES[x][1])) return 1;
+        }
     }
     for (t = 0; t < 3; t++) if (!same_table(&TABS[t])) { CHECK(0, "seed %u: final tables", seed); }
     altsql_db_close(g_db);
@@ -393,8 +426,9 @@ int main(int argc, char **argv) {
     sqlite3_initialize();
     printf("AltSql DB %s: SQL compared against SQLite %s\n", ALTSQL_DB_VERSION, sqlite3_libversion());
     for (s = 1; s <= nseeds; s++) if (run_seed((uint32_t)s, n)) return 1;
-    printf("  %d seeds of %d random statements on three tables (a key of two columns, a text key, no key)\n", nseeds, n);
-    printf("  random statements: %lu SELECTs and %lu writes, after %lu INSERTs that loaded the tables\n", g_rand_selects, g_rand_writes, g_loads);
+    printf("  %d seeds of %d random statements on three tables (a key of two columns, a text key, no key), with two indexes each, one of the six UNIQUE; %lu index makes and drops\n", nseeds, n, g_index_ddl);
+    printf("  random statements: %lu SELECTs (%lu of them read through an index) and %lu writes, after %lu INSERTs that loaded the tables\n",
+           g_rand_selects, g_index_plans, g_rand_writes, g_loads);
     printf("  %lu SELECTs and %lu writes in all, %lu rows compared, the whole table compared after each write (%lu times)\n",
            g_selects, g_writes, g_rows, g_compared_tables);
     printf("  %lu statements failed on both engines (duplicate keys, a key moved onto another), none on one only\n", g_both_failed);

@@ -11,6 +11,7 @@
     ['One reading by its key', ''],
     ['Three devices by key list', 'SELECT device, COUNT(*), MIN(temp), MAX(temp) FROM temps WHERE device IN (101, 105, 109) GROUP BY device'],
     ['Hot readings, any time', 'SELECT device, time, temp FROM temps WHERE temp > 28.5 ORDER BY temp DESC LIMIT 10'],
+    ['One machine, through an index', 'SELECT device, time, temp FROM temps WHERE machine = 2 AND temp > 27.5 ORDER BY temp DESC LIMIT 10'],
     ['Readings by machine', 'SELECT machine, COUNT(*), MIN(temp), MAX(temp) FROM temps GROUP BY machine'],
     ['Key-value pairs', 'SELECT key, value, COUNT(*) FROM kv GROUP BY key, value']
   ];
@@ -111,7 +112,7 @@
     li.innerHTML = '<b>Cut ' + (mode ? 'while writing the commit header' : 'while writing pages') + '</b> of transaction ' + fmt(r.inflight) +
       '. The file opened at transaction ' + fmt(r.after) + ': <b>' + r.kept + '</b>. ' +
       (both ? 'Both headers describe complete trees' : 'Header slots: ' + r.slot0 + ' and ' + r.slot1) + '. ' +
-      (r.twice ? fmt(r.twice) + ' records arrived again and were skipped. ' : '') +
+      (r.twice ? fmt(r.twice) + (r.twice === 1 ? ' record arrived again and was skipped. ' : ' records arrived again and were skipped. ') : '') +
       (r.resent ? fmt(r.resent) + ' records were sent again. ' : '') +
       (r.devicesShort ? r.devicesShort + ' devices are short of readings.' : 'Every device\'s readings are all there, once.');
     if (r.devicesShort || !both) li.style.borderLeftColor = 'var(--red)';

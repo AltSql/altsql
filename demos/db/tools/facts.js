@@ -4,9 +4,9 @@
  */
 /* Runs the demo engine under Node and prints what the page shows: a check
  * that the WebAssembly build behaves as the native one.
- *   node tools/facts.js [app/engine-db.v2.js] */
+ *   node tools/facts.js [app/engine-db.v3.js] */
 'use strict';
-require(require('path').resolve(process.argv[2] || 'app/engine-db.v2.js'));
+require(require('path').resolve(process.argv[2] || 'app/engine-db.v3.js'));
 globalThis.AltSqlDbDemo.load().then(function (e) {
   var t0 = Date.now(), r, i, n = 0, kept = { 'the last commit': 0, 'the commit under way': 0 }, bad = 0;
   console.log('engine', e.version(), JSON.stringify(e.init()), (Date.now() - t0) + ' ms to start');
@@ -15,6 +15,7 @@ globalThis.AltSqlDbDemo.load().then(function (e) {
   [ 'SELECT device, COUNT(*), AVG(temp) FROM temps WHERE time >= 1767228600 GROUP BY device',
     'SELECT * FROM temps WHERE device = 105 AND time > 1767229800',
     'SELECT * FROM temps WHERE device = 105 ORDER BY time DESC LIMIT 1',
+    'SELECT device, time, temp FROM temps WHERE machine = 2 AND temp > 27.5 ORDER BY temp DESC LIMIT 10',
     'SELECT key, value, COUNT(*) FROM kv GROUP BY key, value',
     'SELECT * FROM nosuch' ].forEach(function (q) {
     var a = e.sql(q);

@@ -1,8 +1,9 @@
-engine 0.2.0-alpha {"ok":true,"devices":12} 94 ms to start
-after ten more minutes: 5040 rows from 12 devices, 66 pages, 53.6 bytes per reading
+engine 0.3.0-alpha {"ok":true,"devices":12} 81 ms to start
+after ten more minutes: 5040 rows from 12 devices, 114 pages, 92.6 bytes per reading
 SELECT device, COUNT(*), AVG(temp) FROM temps WHERE time >= 1767228600 GROUP BY device -> 12 rows, 1452 read, plan range per device|temps, range on time
 SELECT * FROM temps WHERE device = 105 AND time > 1767229800 -> 0 rows, 1 read, plan range scan|temps, fixed: device, range on time
 SELECT * FROM temps WHERE device = 105 ORDER BY time DESC LIMIT 1 -> 1 rows, 420 read, plan range scan|temps, fixed: device
+SELECT device, time, temp FROM temps WHERE machine = 2 AND temp > 27.5 ORDER BY temp DESC LIMIT 10 -> 10 rows, 620 read, plan index range|temps, index temps_machine, fixed: machine, range on temp
 SELECT key, value, COUNT(*) FROM kv GROUP BY key, value -> 7 rows, 36 read, plan full scan|kv
 SELECT * FROM nosuch -> error no such table: nosuch
 direct: {"ok":true,"device":105,"seq":429,"time":1767229800,"machine":1,"temp":25.87}

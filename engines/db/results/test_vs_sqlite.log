@@ -1,7 +1,7 @@
-AltSql DB 0.2.0-alpha: SQL compared against SQLite 3.53.4
-  4 seeds of 25000 random statements on three tables (a key of two columns, a text key, no key)
-  random statements: 75093 SELECTs and 24907 writes, after 3600 INSERTs that loaded the tables
-  103612 SELECTs and 28507 writes in all, 850354 rows compared, the whole table compared after each write (28519 times)
-  3450 statements failed on both engines (duplicate keys, a key moved onto another), none on one only
+AltSql DB 0.3.0-alpha: SQL compared against SQLite 3.53.4
+  4 seeds of 25000 random statements on three tables (a key of two columns, a text key, no key), with two indexes each, one of the six UNIQUE; 224 index makes and drops
+  random statements: 75070 SELECTs (8427 of them read through an index) and 24930 writes, after 3600 INSERTs that loaded the tables
+  103612 SELECTs and 28530 writes in all, 850033 rows compared, the whole table compared after each write (28542 times)
+  3456 statements failed on both engines (duplicate keys, a key moved onto another), none on one only
 all passed
 exit 0

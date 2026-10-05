@@ -9,7 +9,10 @@
  * Every database sits in a file with real syncs and gets the same 8 MB of memory. Query
  * times are the best of three runs, as in Core's benchmark (core/tests/bench.c). SQLite
  * gets its best layout for these queries: time as INTEGER PRIMARY KEY, WAL, an 8 MB cache,
- * one prepared statement for the load, 10,000 rows a transaction like AltSql DB. */
+ * one prepared statement for the load, 10,000 rows a transaction like AltSql DB. Since 0.3:
+ * a secondary index made over the million rows, a lookup and a range through it against the
+ * same queries made to scan, and the load again into a table that keeps an index; SQLite
+ * with the same index, the same two questions and the same indexed load. */
 #define ALTSQL_IMPLEMENTATION
 #define ALTSQL_PORT_FILE
 #define ALTSQL_PORT_RAM
@@ -44,6 +47,13 @@ static void set_queries(long rows, int64_t base) {
     queries[4] = "SELECT time, temp FROM readings ORDER BY temp DESC LIMIT 5";
 }
 
+/* through a secondary index, and the same made opaque to the planner so that it scans */
+static const char *const iq[2][2] = {
+    { "SELECT COUNT(*), MIN(time) FROM readings WHERE temp = 25.5", "SELECT COUNT(*), MIN(time) FROM readings WHERE (temp = 25.5) OR 0 = 1" },
+    { "SELECT time, temp FROM readings WHERE temp BETWEEN 25.5 AND 25.52 AND machine = 6",
+      "SELECT time, temp FROM readings WHERE (temp BETWEEN 25.5 AND 25.52 AND machine = 6) OR 0 = 1" },
+};
+
 static void q_core(altsql *db, const char *sql) {
     double best = 1e9;
     int k, rc;
@@ -56,7 +66,7 @@ static void q_core(altsql *db, const char *sql) {
     }
     printf("core     query %7.1f ms  %ld rows  %s\n", best * 1e3, nout, sql);
 }
-static void q_db(altsql_db *db, const char *label, const char *sql) {
+static double q_db(altsql_db *db, const char *label, const char *sql) {
     double best = 1e9;
     int k, rc;
     for (k = 0; k < 3; k++) {
@@ -67,7 +77,27 @@ static void q_db(altsql_db *db, const char *label, const char *sql) {
         if (t < best) best = t;
     }
     printf("%-8s query %7.1f ms  %ld rows  %s\n", label, best * 1e3, nout, sql);
+    return best;
 }
+
+#ifdef BENCH_SQLITE
+/* best of three; the first column of the first row when first is given */
+static void q_sq(sqlite3 *sq, const char *sql, long long *first) {
+    sqlite3_stmt *st;
+    double best = 1e9;
+    int r;
+    for (r = 0; r < 3; r++) {
+        double t0 = now();
+        nout = 0;
+        if (sqlite3_prepare_v2(sq, sql, -1, &st, NULL) != SQLITE_OK) die(sql, -1, sqlite3_errmsg(sq));
+        while (sqlite3_step(st) == SQLITE_ROW) { if (!nout && first) *first = sqlite3_column_int64(st, 0); nout++; }
+        sqlite3_finalize(st);
+        t0 = now() - t0;
+        if (t0 < best) best = t0;
+    }
+    printf("sqlite   query %7.1f ms  %ld rows  %s\n", best * 1e3, nout, sql);
+}
+#endif
 
 static int plan_cb(void *ctx, int n, const altsql_value *v, const char *const *names) {
     (void)n; (void)names;
@@ -146,11 +176,54 @@ int main(int argc, char **argv) {
             q_db(db, "altsqldb", queries[k]);
             printf("               plan: %s\n", plan);
         }
+        {   /* a secondary index over the million rows: a lookup and a range against full scans */
+            uint64_t before = fsize(pdb);
+            t = now();
+            if ((rc = altsql_db_exec(db, "CREATE INDEX readings_temp ON readings (temp)", NULL, NULL)) != 0) die("create index", rc, altsql_db_errmsg(db));
+            t = now() - t;
+            printf("altsqldb index readings_temp (temp) made over %ld rows in %.2f s; %.1f more bytes per row on disk\n",
+                   rows, t, (double)(fsize(pdb) - before) / (double)rows);
+            for (k = 0; k < 2; k++) {
+                char plan[120] = "", ex[260];
+                double ti, tf;
+                snprintf(ex, sizeof ex, "EXPLAIN %s", iq[k][0]);
+                altsql_db_exec(db, ex, plan_cb, plan);
+                ti = q_db(db, "altsqldb", iq[k][0]);
+                printf("               plan: %s\n", plan);
+                tf = q_db(db, "altsqldb", iq[k][1]);
+                printf("               plan: full scan (WHERE made opaque); through the index %.0f times faster\n", tf / ti);
+            }
+        }
         altsql_db_close(db);
         altsql_db_posix_close(&px);
         t = now();
         if (altsql_db_posix_open(&f, &px, pdb, 0) || (rc = altsql_db_open(&db, &f, &cfg)) != 0) die("reopen", -1, "");
         printf("altsqldb reopen %.2f ms\n", (now() - t) * 1e3);
+        altsql_db_close(db);
+        altsql_db_posix_close(&px);
+        unlink(pdb);
+        /* the load again, into a table that keeps an index on (machine, temp) */
+        if (altsql_db_posix_open(&f, &px, pdb, 1)) die("db file", -1, pdb);
+        if ((rc = altsql_db_open(&db, &f, &cfg)) != 0) die("db open", rc, altsql_db_errmsg(db));
+        if ((rc = altsql_db_exec(db, "CREATE TABLE readings (time TIME, machine INT, temp FLOAT); CREATE INDEX rmt ON readings (machine, temp)", NULL, NULL)) != 0)
+            die("create", rc, altsql_db_errmsg(db));
+        t = now();
+        for (i = 0; i < rows; i++) {
+            if (i % 10000 == 0 && (rc = altsql_db_begin(db, 1)) != 0) die("begin", rc, altsql_db_errmsg(db));
+            v[0].type = ALTSQL_INTEGER; v[0].len = 0; v[0].u.i = base + i;
+            v[1].type = ALTSQL_INTEGER; v[1].len = 0; v[1].u.i = i % 16;
+            v[2].type = ALTSQL_REAL; v[2].len = 0; v[2].u.r = 20.0 + (double)(i % 1000) / 100.0;
+            if ((rc = altsql_db_row_put(db, "readings", v, 3)) != 0) die("row_put", rc, altsql_db_errmsg(db));
+            if ((i % 10000 == 9999 || i == rows - 1) && (rc = altsql_db_commit(db)) != 0) die("commit", rc, altsql_db_errmsg(db));
+        }
+        t = now() - t;
+        {
+            altsql_db_info in;
+            altsql_db_info_get(db, &in);
+            printf("altsqldb load  %.0f rows/s with an index on (machine, temp) kept as rows arrive, %.1f bytes per row on disk,\n"
+                   "               %.0f%% of the file's pages free for reuse: each commit copies the index pages it changed\n",
+                   rows / t, (double)fsize(pdb) / (double)rows, 100.0 * in.free_pages / (in.pages ? in.pages : 1));
+        }
         altsql_db_close(db);
         altsql_db_posix_close(&px);
         unlink(pdb);
@@ -184,20 +257,45 @@ int main(int argc, char **argv) {
         sqlite3_exec(sq, "PRAGMA wal_checkpoint(TRUNCATE)", NULL, NULL, NULL);
         printf("sqlite   load  %.0f rows/s (prepared INSERT, 10,000 rows per transaction), %.1f bytes per row on disk (SQLite %s)\n",
                rows / t, (double)(fsize(psq) + fsize(pw)) / (double)rows, sqlite3_libversion());
-        for (k = 0; k < 5; k++) {
-            double best = 1e9;
-            int r;
-            for (r = 0; r < 3; r++) {
-                double t0 = now();
-                nout = 0;
-                if (sqlite3_prepare_v2(sq, queries[k], -1, &st, NULL) != SQLITE_OK) die(queries[k], -1, sqlite3_errmsg(sq));
-                while (sqlite3_step(st) == SQLITE_ROW) nout++;
-                sqlite3_finalize(st);
-                t0 = now() - t0;
-                if (t0 < best) best = t0;
-            }
-            printf("sqlite   query %7.1f ms  %ld rows  %s\n", best * 1e3, nout, queries[k]);
+        for (k = 0; k < 5; k++) q_sq(sq, queries[k], NULL);
+        {   /* the same index on temp and the same two questions */
+            uint64_t before;
+            long long cnt = 0;
+            sqlite3_exec(sq, "PRAGMA wal_checkpoint(TRUNCATE)", NULL, NULL, NULL);
+            before = fsize(psq) + fsize(pw);
+            t = now();
+            if (sqlite3_exec(sq, "CREATE INDEX readings_temp ON readings (temp)", NULL, NULL, NULL) != SQLITE_OK) die("sqlite index", -1, sqlite3_errmsg(sq));
+            t = now() - t;
+            sqlite3_exec(sq, "PRAGMA wal_checkpoint(TRUNCATE)", NULL, NULL, NULL);
+            printf("sqlite   index readings_temp (temp) made over %ld rows in %.2f s; %.1f more bytes per row on disk\n",
+                   rows, t, (double)(fsize(psq) + fsize(pw) - before) / (double)rows);
+            q_sq(sq, iq[0][0], &cnt);
+            printf("               COUNT(*) = %lld rows with temp = 25.5\n", cnt);
+            q_sq(sq, iq[1][0], NULL);
         }
+        sqlite3_close(sq);
+        unlink(psq); unlink(pw);
+        /* the load again, into a table that keeps an index on (machine, temp) */
+        if (sqlite3_open(psq, &sq) != SQLITE_OK) die("sqlite open", -1, psq);
+        sqlite3_exec(sq, "PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA cache_size=-8192;"
+                         "CREATE TABLE readings (time INTEGER PRIMARY KEY, machine INTEGER, temp REAL);"
+                         "CREATE INDEX rmt ON readings (machine, temp)", NULL, NULL, NULL);
+        if (sqlite3_prepare_v2(sq, "INSERT INTO readings VALUES (?, ?, ?)", -1, &st, NULL) != SQLITE_OK) die("sqlite prepare", -1, sqlite3_errmsg(sq));
+        t = now();
+        for (i = 0; i < rows; i++) {
+            if (i % 10000 == 0) sqlite3_exec(sq, "BEGIN", NULL, NULL, NULL);
+            sqlite3_bind_int64(st, 1, base + i);
+            sqlite3_bind_int64(st, 2, i % 16);
+            sqlite3_bind_double(st, 3, 20.0 + (double)(i % 1000) / 100.0);
+            if (sqlite3_step(st) != SQLITE_DONE) die("sqlite insert", -1, sqlite3_errmsg(sq));
+            sqlite3_reset(st);
+            if (i % 10000 == 9999 || i == rows - 1) sqlite3_exec(sq, "COMMIT", NULL, NULL, NULL);
+        }
+        t = now() - t;
+        sqlite3_finalize(st);
+        sqlite3_exec(sq, "PRAGMA wal_checkpoint(TRUNCATE)", NULL, NULL, NULL);
+        printf("sqlite   load  %.0f rows/s with an index on (machine, temp) kept as rows arrive, %.1f bytes per row on disk\n",
+               rows / t, (double)(fsize(psq) + fsize(pw)) / (double)rows);
         sqlite3_close(sq);
         unlink(psq); unlink(pw);
     }

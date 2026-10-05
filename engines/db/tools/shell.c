@@ -204,6 +204,12 @@ static int do_schema(const char *name) {
     printf(") key (");
     for (i = 0; i < ti.nkey; i++) printf("%s%s", i ? "," : "", ti.names[ti.key[i]]);
     printf(")%s\n", ti.kind == ALTSQL_DB_SYNCED ? " synced" : "");
+    for (i = 0; i < ti.nindex; i++) {
+        int j;
+        printf("  %sindex %s (", ti.index[i].unique ? "unique " : "", ti.index[i].name);
+        for (j = 0; j < ti.index[i].ncols; j++) printf("%s%s", j ? "," : "", ti.names[ti.index[i].cols[j]]);
+        printf(")\n");
+    }
     return CMD_OK;
 }
 
@@ -356,7 +362,10 @@ static int do_check(void) {
     rc = altsql_db_check(db, -1, bits, room, &rep);
     free(bits);
     if (rc) return report(rc);
-    printf("ok, %llu entries, %lu pages\n", (unsigned long long)rep.entries, (unsigned long)i.pages);
+    printf("ok, %llu entries, %lu pages", (unsigned long long)rep.entries, (unsigned long)i.pages);
+    if (rep.indexes) printf(", %lu %s with %llu entries, each one's row there", (unsigned long)rep.indexes,
+                            rep.indexes == 1 ? "index" : "indexes", (unsigned long long)rep.index_entries);
+    printf("\n");
     return CMD_OK;
 }
 
@@ -371,9 +380,9 @@ static void help(void) {
            ".exit                           leave\n"
            ".version                        show the versions\n"
            ".tables                         list the tables; (synced) marks those filled by sync\n"
-           ".schema [TABLE]                 columns with their types, and the primary key\n"
+           ".schema [TABLE]                 columns with their types, the primary key and the indexes\n"
            ".info                           the file, the cache and the memory in figures\n"
-           ".check                          check every page of the file\n"
+           ".check                          check every page of the file, and each index against its table\n"
            ".begin                          start a write transaction\n"
            ".commit                         make the transaction final\n"
            ".rollback                       undo the transaction\n"
@@ -388,8 +397,9 @@ static void help(void) {
            ".drop TABLE                     drop a table with its rows\n"
            ".sync DEVICE AFTER_SEQ FILE     apply a sync batch file that a Core device wrote\n"
            ".state DEVICE                   the last sequence number applied for a device\n"
-           "SQL: CREATE TABLE, DROP TABLE, INSERT, UPDATE, DELETE, SELECT ... WHERE / GROUP BY /\n"
-           "     HAVING / ORDER BY / LIMIT; end with ';'. Words with spaces: 'like this' or \"this\".\n");
+           "SQL: CREATE TABLE, DROP TABLE, CREATE [UNIQUE] INDEX, DROP INDEX, INSERT, UPDATE, DELETE,\n"
+           "     SELECT ... WHERE / GROUP BY / HAVING / ORDER BY / LIMIT, EXPLAIN SELECT; end with ';'.\n"
+           "     Words with spaces: 'like this' or \"this\".\n");
 }
 
 /* Runs one dot command (the line is cut up in place). CMD_QUIT for .quit. */

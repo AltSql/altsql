@@ -40,7 +40,7 @@
 
 #include "altsql.h"
 
-#define ALTSQL_DB_VERSION "0.2.0-alpha"
+#define ALTSQL_DB_VERSION "0.3.0-alpha"
 
 #ifdef __cplusplus
 extern "C" {
@@ -90,6 +90,7 @@ typedef struct altsql_db_cursor {
     int        state;
     uint16_t   depth, klen, plen, pad_;
     uint32_t   fi;
+    uint32_t   table;               /* an index's cursor: its table's key space; else 0 */
     uint8_t    pre[64];
     uint32_t   pg[ALTSQL_DB_MAXDEPTH];
     uint16_t   ix[ALTSQL_DB_MAXDEPTH];
@@ -148,13 +149,17 @@ int altsql_db_value(altsql_db_cursor *c, void *buf, size_t cap, size_t *vn);
  * then the series' own; their key is (device, time, seq); row_put refuses
  * them, row_del takes rows away (retention). The synced table kv holds every
  * device's key-value pairs: columns device, key, value; key (device, key). */
-#define ALTSQL_DB_MAXCOLS 24
+#define ALTSQL_DB_MAXCOLS    24
+#define ALTSQL_DB_MAXINDEXES 8              /* secondary indexes on one table            */
+#define ALTSQL_DB_INDEXCOLS  4              /* columns in one index                      */
 enum { ALTSQL_DB_TABLE = 1, ALTSQL_DB_SYNCED = 2 };
 typedef struct altsql_db_tableinfo {
     int kind, ncols, nkey;
     int key[ALTSQL_DB_MAXCOLS];             /* column index of each key column           */
     int types[ALTSQL_DB_MAXCOLS];           /* 1 time 2 int 3 long 4 float 5 real 6 text */
     const char *names[ALTSQL_DB_MAXCOLS];   /* valid until the next call on the handle   */
+    int nindex;                             /* its secondary indexes                     */
+    struct { char name[32]; int unique, ncols, cols[ALTSQL_DB_INDEXCOLS]; } index[ALTSQL_DB_MAXINDEXES];
 } altsql_db_tableinfo;
 int altsql_db_table_create(altsql_db *db, const char *name, const char *columns, const char *key);
 int altsql_db_table_info(altsql_db *db, const char *table, altsql_db_tableinfo *out);
@@ -175,6 +180,24 @@ int altsql_db_row_seek(altsql_db_cursor *c, altsql_db *db, const char *table,
 int altsql_db_row_last(altsql_db_cursor *c, altsql_db *db, const char *table,
                        const altsql_value *prefix, int nprefix);
 int altsql_db_row_read(altsql_db_cursor *c, altsql_value *cols, int ncols);
+
+/* ---- Secondary indexes ------------------------------------------------------------------
+ * An index keeps a table's rows in the order of up to 4 of its columns, in the same file and
+ * the same transactions, through the same row-write function as the table. columns: names,
+ * comma-separated. unique 1: no two rows may have the same values in the index's columns
+ * (ALTSQL_EXISTS); not for synced tables, whose rows come from devices that don't know each
+ * other's. The rows already in the table are indexed when the index is made, and a UNIQUE
+ * index is refused if two of them collide. Up to 8 indexes a table. Index and table names
+ * share one name space. CREATE [UNIQUE] INDEX and DROP INDEX in SQL do the same.
+ * index_seek and index_last give the rows whose first indexed columns equal prefix (nprefix 0:
+ * every row), in index order, then by the table's key; move with altsql_db_next and
+ * altsql_db_prev and read each row with altsql_db_row_read. */
+int altsql_db_index_create(altsql_db *db, const char *table, const char *name, const char *columns, int unique);
+int altsql_db_index_drop(altsql_db *db, const char *name);
+int altsql_db_index_seek(altsql_db_cursor *c, altsql_db *db, const char *index,
+                         const altsql_value *prefix, int nprefix);
+int altsql_db_index_last(altsql_db_cursor *c, altsql_db *db, const char *index,
+                         const altsql_value *prefix, int nprefix);
 
 /* ---- Sync from AltSql Core devices ------------------------------------------------------
  * batch: the bytes altsql_sync_read gave the device, unchanged. device: the
@@ -199,15 +222,20 @@ int altsql_db_sync_state(altsql_db *db, int64_t device, uint32_t *last_seq);
 
 /* ---- SQL ----------------------------------------------------------------------------------------
  * Core's gateway SQL over the tree: CREATE TABLE [IF NOT EXISTS] with an optional PRIMARY KEY,
- * DROP TABLE [IF EXISTS], INSERT [OR REPLACE] (all or nothing), UPDATE ... SET ... [WHERE],
- * DELETE FROM ... [WHERE], SELECT with WHERE, GROUP BY, HAVING, ORDER BY, LIMIT and OFFSET, and
- * EXPLAIN SELECT, which names the plan. column [NOT] IN (value, ...) takes literals and
+ * DROP TABLE [IF EXISTS], CREATE [UNIQUE] INDEX [IF NOT EXISTS] name ON table (col, ...), DROP
+ * INDEX [IF EXISTS] name, INSERT [OR REPLACE], UPDATE ... SET ... [WHERE], DELETE FROM ...
+ * [WHERE], SELECT with WHERE, GROUP BY, HAVING, ORDER BY, LIMIT and OFFSET, and EXPLAIN SELECT,
+ * which names the plan and the index it reads. column [NOT] IN (value, ...) takes literals and
  * parameters. A table without a primary key keeps its rows in the order of its first column, then
  * of arrival (Core reads a series in arrival order, so rows that arrive out of time order come
  * back in another order without ORDER BY). A synced table takes SELECT and DELETE (retention),
- * not INSERT, UPDATE or DROP. UPDATE and DELETE are all or nothing: an error partway rolls back
- * the transaction the statement opened, or fails the caller's. Statements may be separated by
- * ';'. cb may be NULL; it must not call back into the handle. */
+ * not INSERT, UPDATE or DROP. INSERT OR REPLACE replaces the row with the same primary key; a
+ * row with the same values in a UNIQUE index is refused. Each statement that writes is all or
+ * nothing: an error partway rolls back the transaction the statement opened, and inside the
+ * caller's transaction a savepoint takes the statement back and the transaction goes on. A
+ * savepoint keeps pages in SQL memory; one that runs out of room fails the caller's
+ * transaction instead, as in 0.2. Statements may be separated by ';'. cb may be NULL; it must
+ * not call back into the handle. */
 int altsql_db_exec(altsql_db *db, const char *sql, altsql_row_cb cb, void *ctx);
 
 /* Prepared statements, up to four at a time, in the handle's SQL memory. Parameters are written
@@ -240,13 +268,17 @@ int altsql_db_info_get(altsql_db *db, altsql_db_info *out);
 
 /* Walks the whole tree and the free list under one commit header and checks
  * every page: order of keys, depth, overflow chains, and that each page is
- * used once, by the tree or the free list. slot: 0 or 1 for that header, -1
+ * used once, by the tree or the free list. Then each secondary index against
+ * its table, both ways: every entry leads to a row whose values give that
+ * entry, and the index has as many entries as the table has rows. slot: 0 or 1 for that header, -1
  * for the current one. mem: one bit per page of the file. ALTSQL_NOTFOUND
  * when the slot holds no valid header; ALTSQL_CORRUPT with a message when a
  * check fails. Not inside a write transaction. */
 typedef struct altsql_db_check_report {
     uint64_t txn, entries;
     uint32_t depth, tree_pages, overflow_pages, freelist_pages, free_entries;
+    uint32_t indexes;             /* secondary indexes checked against their tables */
+    uint64_t index_entries;
 } altsql_db_check_report;
 int altsql_db_check(altsql_db *db, int slot, void *mem, size_t mem_size, altsql_db_check_report *rep);
 
@@ -314,7 +346,8 @@ void altsql_db_ram_powercut(altsql_db_ram *r, uint32_t seed);
  *                keys below key i; the rightmost child holds the rest.
  * Free-list page entries, 12 bytes each: page (LE32), transaction that
  * freed it (LE64); 0 for a page freed by the transaction that wrote it.
- * Commit header, 64 bytes: "ASQLTREE", version 2, page size, transaction,
+ * Commit header, 64 bytes: "ASQLTREE", version 3 (0.3 also opens version 2,
+ * which differs only in having no indexes), page size, transaction,
  * root, page count, first page and entries of the ready list, next key
  * space, first page and entries of the newest list, 8 reserved bytes,
  * CRC-32 of bytes 0 to 59.
@@ -337,7 +370,9 @@ void altsql_db_ram_powercut(altsql_db_ram *r, uint32_t seed);
 #define ASD_KS_USER 64u
 #define ASD_K_BUCKET 3
 
-typedef struct asd_frame { uint32_t pg, next; uint16_t pin; uint8_t dirty, ref; } asd_frame;
+/* img: the page's bytes from before the running statement are kept, or the statement wrote the
+ * page itself; fresh: the statement wrote it. Both are 0 outside a statement's savepoint. */
+typedef struct asd_frame { uint32_t pg, next; uint16_t pin; uint8_t dirty, ref, img, fresh; } asd_frame;
 #define ASD_NTAB    8
 #define ASD_ROWBUF  8192
 #define ASD_KS_SYNC 2u
@@ -345,12 +380,17 @@ typedef struct asd_frame { uint32_t pg, next; uint16_t pin; uint8_t dirty, ref; 
 #define ASD_K_SYNCED 2
 #define ASD_F_KV     1
 #define ASD_F_ROWID  2
+#define ASD_K_INDEX  4
+/* A secondary index: its key space, UNIQUE or not, and its columns, as the table numbers them. */
+struct asd_index { uint32_t ks; uint8_t unique, ncols, cols[ALTSQL_DB_INDEXCOLS]; };
 struct asd_table {
     uint32_t ks;
     uint8_t  kind, ncols, nkey, flags;
     uint8_t  types[ALTSQL_DB_MAXCOLS], key[ALTSQL_DB_MAXCOLS];
     char     name[32];
     char     cols[ALTSQL_DB_MAXCOLS][32];
+    uint32_t nidx;
+    struct asd_index idx[ALTSQL_DB_MAXINDEXES];
 };
 #define ASD_NSTMT     4
 #define ASD_MAXPARAM  16
@@ -373,6 +413,27 @@ struct altsql_db_stmt {
 };
 #endif
 typedef struct asd_hdr { uint64_t txn; uint32_t root, npages, flhead, flcount, nextks, nxhead, nxcount; } asd_hdr;
+
+/* A statement's savepoint, inside the caller's transaction: what the statement may change, as it
+ * stood when the statement began. Pages the transaction wrote before the statement are changed
+ * in place as usual; the first time the statement changes or frees one, its bytes are kept here.
+ * If the statement fails, they go back, the pages the statement wrote leave the cache, and the
+ * tree's root, the page count and the free lists go back to what was noted. Committed pages need
+ * nothing: copy on write never changes them. On success nothing is undone, so a statement leaves
+ * the file exactly as it would have without a savepoint. */
+struct asd_sp {
+    int       on, broken;          /* broken: no room left to keep a page; a failure fails the transaction */
+    uint32_t  root, npages, nextks, rowctr, seqpg, seqix;
+    uint32_t  nav, nho, flnext, fltail, dhead, dtail, dcount, hhead, hcount, nxnext, nxleft;
+    uint64_t  mods;
+    uint32_t *avpg, *hopg;         /* the free lists in memory, copied                     */
+    uint64_t *avtag, *hotag;
+    uint32_t *upg, nkept, cap;     /* kept pages: their numbers, and their bytes in ubuf    */
+    uint8_t  *ubuf;
+    uint32_t *aset, amask, acount; /* pages the statement wrote that left the cache: never kept */
+    int       aready;              /* aset cleared, on its first use                        */
+    uint32_t *tfr, ntfr, tcap;     /* frames whose flags the statement set; tcap + 1: too many */
+};
 
 struct altsql_db {
     altsql_db_file f;
@@ -414,6 +475,7 @@ struct altsql_db {
     struct altsql core;            /* Core's parser reports its errors here        */
 #endif
     uint32_t  seqpg, seqix;        /* the last leaf insert, for splits that suit time order */
+    struct asd_sp sp;              /* the running statement's savepoint, if any            */
     size_t    mem_used;
     uint64_t  nread, nwrite, nsync, hits, misses;
     char      err[96];
@@ -651,6 +713,9 @@ static int asd_wpage(altsql_db *db, uint32_t pg, const uint8_t *buf) {
 
 /* A frame to reuse, by the clock. A changed page is written early to its new
  * place: safe, because no commit header points at it yet. */
+static void asd_sp_note(altsql_db *db, uint32_t fi);
+static void asd_sp_mark(altsql_db *db, uint32_t pg);
+
 static int asd_victim(altsql_db *db, uint32_t *out) {
     uint32_t tries = 0, lim = 2 * db->nfr + 1;
     while (tries++ < lim) {
@@ -665,6 +730,7 @@ static int asd_victim(altsql_db *db, uint32_t *out) {
             if (rc) return rc;
             f->dirty = 0;
         }
+        if (f->fresh && db->sp.on) asd_sp_mark(db, f->pg);   /* the statement's own page leaves the cache */
         asd_hdel(db, fi);
         *out = fi;
         return ALTSQL_OK;
@@ -695,6 +761,7 @@ static int asd_get(altsql_db *db, uint32_t pg, uint32_t *out) {
     db->fr[fi].dirty = 0;
     db->fr[fi].ref = 1;
     db->fr[fi].pin = 1;
+    db->fr[fi].img = db->fr[fi].fresh = 0;
     asd_hadd(db, fi);
     *out = fi;
     return ALTSQL_OK;
@@ -714,6 +781,8 @@ static int asd_frame_for(altsql_db *db, uint32_t pg, int type, uint32_t *out) {
     asd_pinit(db, ASD_PAGE(db, fi), type);
     db->fr[fi].dirty = 1;
     db->fr[fi].ref = 1;
+    db->fr[fi].img = db->fr[fi].fresh = (uint8_t)db->sp.on;
+    if (db->sp.on) asd_sp_note(db, fi);
     db->fr[fi].pin++;
     db->mods++;
     *out = fi;
@@ -735,6 +804,58 @@ static void asd_drop_owned(altsql_db *db) {
             db->fr[i].pin = 0;
             asd_hdel(db, i);
         }
+}
+
+/* A frame whose img or fresh flag the statement set, so the flags are cleared after it without
+ * a walk over the whole cache; past tcap, the walk. */
+static void asd_sp_note(altsql_db *db, uint32_t fi) {
+    struct asd_sp *s = &db->sp;
+    if (s->ntfr < s->tcap) s->tfr[s->ntfr++] = fi;
+    else s->tcap = 0, s->ntfr = 1;                        /* too many: the walk */
+}
+
+/* A page the statement wrote, leaving the cache: noted so that it is never kept when it comes
+ * back, since its bytes from before the statement are a free page's. The set is cleared on its
+ * first use; a full set notes no more, and those pages are kept, harmlessly. */
+static void asd_sp_mark(altsql_db *db, uint32_t pg) {
+    struct asd_sp *s = &db->sp;
+    uint32_t h;
+    if (!s->aset || 4 * (s->acount + 1) > 3 * (s->amask + 1)) return;
+    if (!s->aready) { memset(s->aset, 0, ((size_t)s->amask + 1) * 4); s->aready = 1; }
+    for (h = (pg * 2654435761u) & s->amask; s->aset[h]; h = (h + 1) & s->amask) if (s->aset[h] == pg) return;
+    s->aset[h] = pg;
+    s->acount++;
+}
+
+static int asd_sp_marked(const altsql_db *db, uint32_t pg) {
+    const struct asd_sp *s = &db->sp;
+    uint32_t h;
+    if (!s->aready) return 0;
+    for (h = (pg * 2654435761u) & s->amask; s->aset[h]; h = (h + 1) & s->amask) if (s->aset[h] == pg) return 1;
+    return 0;
+}
+
+/* A page the transaction wrote before the running statement, about to change or be freed: its
+ * bytes go to the savepoint, from the cache (fi) or from the file. No room: the savepoint can no
+ * longer take the statement back, and a failure will fail the transaction instead. */
+static int asd_sp_keep(altsql_db *db, uint32_t pg, uint32_t fi) {
+    struct asd_sp *s = &db->sp;
+    uint8_t *dst;
+    if (pg >= s->npages || asd_sp_marked(db, pg)) {      /* the statement's own page, evicted and read again */
+        if (fi != ASD_NONE) { db->fr[fi].img = 1; asd_sp_note(db, fi); }
+        return ALTSQL_OK;
+    }
+    if (s->broken) return ALTSQL_OK;
+    if (s->nkept == s->cap) { s->broken = 1; return ALTSQL_OK; }
+    dst = s->ubuf + (size_t)s->nkept * db->ps;
+    if (fi != ASD_NONE) memcpy(dst, ASD_PAGE(db, fi), db->ps);
+    else {
+        db->nread++;
+        if (db->f.read(db->f.ctx, (uint64_t)pg * db->ps, dst, db->ps)) return asd_err(db, ALTSQL_IOERR, "read failed");
+    }
+    s->upg[s->nkept++] = pg;
+    if (fi != ASD_NONE) { db->fr[fi].img = 1; asd_sp_note(db, fi); }
+    return ALTSQL_OK;
 }
 
 /* ---- Free list ------------------------------------------------------------- */
@@ -817,6 +938,8 @@ static int asd_free(altsql_db *db, uint32_t pg, uint64_t txn) {
     db->mods++;
     if (txn == db->cur) {
         uint32_t fi = asd_lookup(db, pg);
+        /* written before the running statement: the statement may reuse it, so its bytes are kept */
+        if (db->sp.on && (fi == ASD_NONE || !db->fr[fi].img) && (rc = asd_sp_keep(db, pg, fi)) != 0) return rc;
         if (fi != ASD_NONE) db->fr[fi].dirty = 0;
         if (db->nav == db->flw && (rc = asd_spill(db, 0)) != 0) return rc;
         db->avpg[db->nav] = pg;
@@ -909,7 +1032,7 @@ static int asd_flflush(altsql_db *db, uint32_t *flhead, uint32_t *nxhead) {
 static void asd_hdr_put(const altsql_db *db, uint8_t *h, const asd_hdr *x) {
     memset(h, 0, ASD_HS);
     memcpy(h, "ASQLTREE", 8);
-    as_put32(h + 8, 2);
+    as_put32(h + 8, 3);
     as_put32(h + 12, db->ps);
     as_put64(h + 16, x->txn);
     as_put32(h + 24, x->root);
@@ -924,7 +1047,7 @@ static void asd_hdr_put(const altsql_db *db, uint8_t *h, const asd_hdr *x) {
 
 static int asd_hdr_get(const uint8_t *h, uint32_t *ps, asd_hdr *x) {
     uint32_t p = as_get32(h + 12);
-    if (memcmp(h, "ASQLTREE", 8) || as_get32(h + 8) != 2 || as_get32(h + 60) != as_crc32(0, h, 60)) return 0;
+    if (memcmp(h, "ASQLTREE", 8) || as_get32(h + 8) < 2 || as_get32(h + 8) > 3 || as_get32(h + 60) != as_crc32(0, h, 60)) return 0;
     if (p < 512 || p > 65536 || (p & (p - 1))) return 0;
     x->txn = as_get64(h + 16);
     x->root = as_get32(h + 24);
@@ -1061,7 +1184,7 @@ static int asd_setup(altsql_db *db, uint32_t ps, uint8_t *m, size_t left, size_t
     if (!db->hash || !db->fr || !db->sortb || !db->pages)
         return asd_err(db, ALTSQL_NOMEM, "working memory too small for the page cache");
     for (i = 0; i < hs; i++) db->hash[i] = ASD_NONE;
-    for (i = 0; i < db->nfr; i++) { db->fr[i].pg = ASD_NONE; db->fr[i].pin = 0; db->fr[i].dirty = 0; db->fr[i].ref = 0; }
+    for (i = 0; i < db->nfr; i++) { db->fr[i].pg = ASD_NONE; db->fr[i].pin = 0; db->fr[i].dirty = 0; db->fr[i].ref = 0; db->fr[i].img = db->fr[i].fresh = 0; }
     db->mem_used += start - left;
     return ALTSQL_OK;
 }
@@ -1159,6 +1282,7 @@ int altsql_db_begin(altsql_db *db, int writable) {
 static void asd_end(altsql_db *db) {
     db->tx = 0;
     db->failed = 0;
+    db->sp.on = 0;
     asd_view(db);
 }
 
@@ -1299,6 +1423,9 @@ static int asd_touch(altsql_db *db, asd_path *p) {
         uint32_t fi = p->fi[l];
         uint8_t *src = ASD_PAGE(db, fi);
         uint64_t t = asd_txn(src);
+        if (t == db->cur && db->sp.on && !db->fr[fi].img) {   /* written before the statement: kept, then changed in place */
+            if ((rc = asd_sp_keep(db, db->fr[fi].pg, fi)) != 0) return rc;
+        }
         if (t != db->cur) {
             uint32_t oldpg = db->fr[fi].pg, newpg, nfi;
             if ((rc = asd_alloc(db, &newpg, 0)) != 0) return rc;
@@ -1985,6 +2112,17 @@ static int asd_cland(altsql_db_cursor *c, int rc, int endstate) {
     return ALTSQL_OK;
 }
 
+/* A cursor on the first entry under key space ks and the mn bytes of more after it. */
+static int asd_cfirst(altsql_db_cursor *c, altsql_db *db, uint32_t ks, const uint8_t *more, uint32_t mn) {
+    int found;
+    c->db = db; c->space = ks; c->state = 0; c->fi = ASD_NONE; c->table = 0;
+    c->plen = (uint16_t)asd_ksput(c->pre, ks);
+    if (mn) memcpy(c->pre + c->plen, more, mn);
+    c->plen = (uint16_t)(c->plen + mn);
+    memcpy(c->key, c->pre, c->plen);
+    return asd_cland(c, asd_cseek(c, c->key, c->plen, &found), 2);
+}
+
 static int asd_cstart(altsql_db_cursor *c, altsql_db *db, uint32_t b) {
     int rc;
     if ((rc = asd_ready(db)) != 0 || (rc = asd_bucket_ok(db, b)) != 0) return rc;
@@ -1992,6 +2130,7 @@ static int asd_cstart(altsql_db_cursor *c, altsql_db *db, uint32_t b) {
     c->space = b;
     c->state = 0;
     c->fi = ASD_NONE;
+    c->table = 0;
     c->plen = (uint16_t)asd_ksput(c->pre, b);
     return ALTSQL_OK;
 }
@@ -2121,6 +2260,9 @@ int altsql_db_value(altsql_db_cursor *c, void *buf, size_t cap, size_t *vn) {
 /* ---- Tables ------------------------------------------------------------------------------
  * Catalog entry 'n' + name: kind (1), key space (LE32), columns (1), key columns (1), flags
  * (1), the key's column indexes, then the columns as "name:type,...".
+ * An index has three: 'n' + name: kind 4, its key space, its table's (LE32 each); 'k' + its
+ * key space: kind, name; 'i' + the table's key space + its own: UNIQUE (1), columns (1), the
+ * columns' numbers. A table's indexes are the 'i' entries under its key space.
  * A table's row: key = key space, then the key columns, each written so that keys compare as
  * bytes; value = every column packed as Core packs a series row, without the series number.
  * A synced table's row: key = (device, time, seq); value = the device's payload, unchanged.
@@ -2320,7 +2462,10 @@ static int asd_table_parse(altsql_db *db, const char *name, size_t nlen, const u
     return ALTSQL_OK;
 }
 
-/* A table by name, from the cache or the catalog. Valid until the next table lookup. */
+static int asd_index_load(altsql_db *db, struct asd_table *T);
+
+/* A table by name, from the cache or the catalog, with its indexes. Valid until the next table
+ * lookup. */
 static int asd_table_get(altsql_db *db, const char *name, size_t nlen, struct asd_table **out) {
     uint8_t k[48];
     uint32_t i, kn, fi, ix;
@@ -2340,8 +2485,10 @@ static int asd_table_get(altsql_db *db, const char *name, size_t nlen, struct as
         asd_unpin(db, fi);
         if (rc) return rc;
         if (vn && db->rowbuf[0] == ASD_K_BUCKET) return asd_err(db, ALTSQL_MISUSE, "that name belongs to a bucket, not a table");
+        if (vn && db->rowbuf[0] == ASD_K_INDEX) return asd_err(db, ALTSQL_MISUSE, "that name belongs to an index, not a table");
         i = db->ntabs < ASD_NTAB ? db->ntabs++ : (db->tpos++ % ASD_NTAB);
-        if ((rc = asd_table_parse(db, name, nlen, db->rowbuf, (uint32_t)vn, &db->tabs[i])) != 0) { db->ntabs = 0; return rc; }
+        if ((rc = asd_table_parse(db, name, nlen, db->rowbuf, (uint32_t)vn, &db->tabs[i])) != 0 ||
+            (rc = asd_index_load(db, &db->tabs[i])) != 0) { db->ntabs = 0; return rc; }
     }
     *out = &db->tabs[i];
     return ALTSQL_OK;
@@ -2451,6 +2598,21 @@ int altsql_db_table_info(altsql_db *db, const char *table, altsql_db_tableinfo *
     o->nkey = T->nkey;
     for (i = 0; i < T->ncols; i++) { o->types[i] = T->types[i]; o->names[i] = T->cols[i]; }
     for (i = 0; i < T->nkey; i++) o->key[i] = T->key[i];
+    for (i = 0; i < (int)T->nidx; i++) {                 /* each index, its name from the catalog */
+        uint8_t k[16], v[40];
+        uint32_t kn = asd_catkey(k, 0, 0, 0, T->idx[i].ks), fi, ix, j;
+        size_t vn;
+        if ((rc = asd_find(db, k, kn, &fi, &ix)) != 0) return rc == ALTSQL_NOTFOUND ? ASD_CORRUPT(db, "damaged catalog") : rc;
+        rc = asd_value(db, ASD_PAGE(db, fi), ix, v, sizeof v, &vn);
+        asd_unpin(db, fi);
+        if (rc || vn < 2 || vn > 32) return rc && rc != ALTSQL_DB_SHORT ? rc : ASD_CORRUPT(db, "damaged catalog");
+        memcpy(o->index[i].name, v + 1, vn - 1);
+        o->index[i].name[vn - 1] = 0;
+        o->index[i].unique = T->idx[i].unique;
+        o->index[i].ncols = T->idx[i].ncols;
+        for (j = 0; j < T->idx[i].ncols; j++) o->index[i].cols[j] = T->idx[i].cols[j];
+    }
+    o->nindex = (int)T->nidx;
     return ALTSQL_OK;
 }
 
@@ -2503,15 +2665,162 @@ static uint32_t asd_rowid(altsql_db *db, uint8_t *p) {
     return asd_enc_int(p, (int64_t)((db->cur << 24) | (db->rowctr++ & 0xFFFFFFu)));
 }
 
+/* ---- Secondary indexes: entries -------------------------------------------------------------
+ * An entry's key: the index's key space, the indexed values written as table keys are, then
+ * (not UNIQUE) the row's key after its table's key space, so entries sort by value, then by
+ * row, and every row has its own entry. A UNIQUE index's entry is keyed by the values alone
+ * and holds the row's key as its value. */
+enum { ASD_OP_INSERT = 1, ASD_OP_REPLACE, ASD_OP_UPDATE, ASD_OP_DELETE, ASD_OP_SYNC };
+
+static uint32_t asd_kslen(uint32_t v) { uint8_t t[8]; return asd_ksput(t, v); }
+
+static uint32_t asd_ksget(const uint8_t *p, uint32_t avail, uint32_t *v) {
+    if (!avail) return 0;
+    if (p[0] <= 240) { *v = p[0]; return 1; }
+    if (p[0] <= 248) { if (avail < 2) return 0; *v = 240u + (uint32_t)(p[0] - 241) * 256u + p[1]; return 2; }
+    if (p[0] == 249) { if (avail < 3) return 0; *v = 2288u + ((uint32_t)p[1] << 8) + p[2]; return 3; }
+    if (p[0] == 250) { if (avail < 4) return 0; *v = ((uint32_t)p[1] << 16) | ((uint32_t)p[2] << 8) | p[3]; return 4; }
+    if (p[0] == 251) { if (avail < 5) return 0; *v = ((uint32_t)p[1] << 24) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 8) | p[4]; return 5; }
+    return 0;
+}
+
+/* The length of one value written as a key column; 0 when the bytes run short. */
+static uint32_t asd_kskip(int t, const uint8_t *p, uint32_t avail) {
+    uint32_t i;
+    int64_t x;
+    if (t == AS_T_FLOAT) return avail >= 4 ? 4 : 0;
+    if (t == AS_T_REAL) return avail >= 8 ? 8 : 0;
+    if (t != AS_T_TEXT) return asd_dec_int(p, avail, &x);
+    for (i = 0; i + 1 < avail; i++)
+        if (!p[i]) { if (!p[i + 1]) return i + 2; i++; }   /* 0 0 ends it, 0 0xFF is a zero byte */
+    return 0;
+}
+
+/* The entry of the row with values v and key rk (after the table's key space), in out (room
+ * for ALTSQL_DB_MAXKEY + 8 bytes). 0 when it is longer than a key may be. */
+static uint32_t asd_ikey(const altsql_db *db, const struct asd_table *T, const struct asd_index *I,
+                         const altsql_value *v, const uint8_t *rk, uint32_t rkn, uint8_t *out) {
+    uint32_t n = asd_ksput(out, I->ks), i, w;
+    for (i = 0; i < I->ncols; i++) {
+        int c = I->cols[i];
+        if (n > db->maxkey || !(w = asd_kenc(T->types[c], &v[c], out + n, ALTSQL_DB_MAXKEY + 8 - n))) return 0;
+        n += w;
+    }
+    if (!I->unique) {
+        if (n + rkn > db->maxkey) return 0;
+        if (rkn) memcpy(out + n, rk, rkn);
+        n += rkn;
+    }
+    return n <= db->maxkey ? n : 0;
+}
+
+/* Where the row's key starts in an entry that is not UNIQUE; 0 when the entry is damaged. */
+static uint32_t asd_ivals(const struct asd_table *T, const struct asd_index *I, const uint8_t *ek, uint32_t ekn) {
+    uint32_t n = asd_kslen(I->ks), i, w;
+    for (i = 0; i < I->ncols; i++) {
+        if (n >= ekn || !(w = asd_kskip(T->types[I->cols[i]], ek + n, ekn - n))) return 0;
+        n += w;
+    }
+    return n;
+}
+
+/* A table's indexes, from its 'i' entries in the catalog. */
+static int asd_index_load(altsql_db *db, struct asd_table *T) {
+    altsql_db_cursor c;
+    uint8_t v[8];
+    size_t vn;
+    int rc;
+    T->nidx = 0;
+    v[0] = 'i';
+    rc = asd_cfirst(&c, db, ASD_KS_CAT, v, 1 + asd_ksput(v + 1, T->ks));
+    while (rc == ALTSQL_OK) {
+        struct asd_index *I;
+        uint32_t i, ks = 0;
+        if (T->nidx >= ALTSQL_DB_MAXINDEXES) return ASD_CORRUPT(db, "damaged catalog: too many indexes");
+        if ((rc = altsql_db_value(&c, v, sizeof v, &vn)) != 0) return rc == ALTSQL_DB_SHORT ? ASD_CORRUPT(db, "damaged catalog") : rc;
+        if (asd_ksget(c.key + c.plen, c.klen - c.plen, &ks) != (uint32_t)(c.klen - c.plen) || ks < ASD_KS_USER ||
+            vn < 3 || v[0] > 1 || !v[1] || v[1] > ALTSQL_DB_INDEXCOLS || vn != 2u + v[1])
+            return ASD_CORRUPT(db, "damaged catalog");
+        I = &T->idx[T->nidx++];
+        I->ks = ks;
+        I->unique = v[0];
+        I->ncols = v[1];
+        for (i = 0; i < I->ncols; i++) {
+            if (v[2 + i] >= T->ncols) return ASD_CORRUPT(db, "damaged catalog");
+            I->cols[i] = v[2 + i];
+        }
+        rc = altsql_db_next(&c);
+    }
+    return rc == ALTSQL_NOTFOUND ? ALTSQL_OK : rc;
+}
+
+/* A row's entries before it is written: each must fit in a key, and one in a UNIQUE index
+ * must not belong to another row. rk: the row's key after the table's key space; NULL for a
+ * new row of a table without a primary key, whose hidden part (up to 9 bytes) comes later. */
+static int asd_row_icheck(altsql_db *db, const struct asd_table *T, const altsql_value *v,
+                          const uint8_t *rk, uint32_t rkn) {
+    uint8_t ik[ALTSQL_DB_MAXKEY + 16], cur[ALTSQL_DB_MAXKEY + 16];
+    uint32_t i, n, fi, ix;
+    size_t vn;
+    int rc;
+    for (i = 0; i < T->nidx; i++) {
+        const struct asd_index *I = &T->idx[i];
+        n = asd_ikey(db, T, I, v, rk, rkn, ik);
+        if (!n || (!rk && !I->unique && n + 9 > db->maxkey)) return asd_err(db, ALTSQL_TOOBIG, "index entry too long for a key");
+        if (!I->unique) continue;
+        rc = asd_find(db, ik, n, &fi, &ix);
+        if (rc == ALTSQL_NOTFOUND) continue;
+        if (rc) return rc;
+        rc = asd_value(db, ASD_PAGE(db, fi), ix, cur, sizeof cur, &vn);
+        asd_unpin(db, fi);
+        if (rc && rc != ALTSQL_DB_SHORT) return rc;
+        if (rc || !rk || vn != rkn || memcmp(cur, rk, rkn)) return asd_err(db, ALTSQL_EXISTS, "another row has those values in a UNIQUE index");
+    }
+    return ALTSQL_OK;
+}
+
+/* The indexes, as the row at tk becomes nv (NULL: the row goes). ov: the row there now, as an
+ * UPDATE or DELETE read it; else it is read here, if there is one. An entry that stays the
+ * same is left alone, the others go and come. */
+static int asd_index_keep(altsql_db *db, const struct asd_table *T, int op, const uint8_t *tk, uint32_t tkn,
+                          const altsql_value *nv, const altsql_value *ov) {
+    altsql_value rv[ALTSQL_DB_MAXCOLS];
+    const altsql_value *old = ov ? ov : rv;
+    uint8_t ok[ALTSQL_DB_MAXKEY + 16], nk[ALTSQL_DB_MAXKEY + 16];
+    uint32_t tks = asd_kslen(T->ks), i, fi, ix;
+    int rc, has = ov != NULL;
+    if (op != ASD_OP_INSERT && !ov) {
+        size_t vn;
+        rc = asd_find(db, tk, tkn, &fi, &ix);
+        if (rc == ALTSQL_OK) {
+            rc = asd_value(db, ASD_PAGE(db, fi), ix, db->rowbuf, ASD_ROWBUF, &vn);
+            asd_unpin(db, fi);
+            if (rc) return rc == ALTSQL_DB_SHORT ? ASD_CORRUPT(db, "row too large") : rc;
+            if ((rc = asd_rowdecode(db, T, tk, tkn, db->rowbuf, (uint32_t)vn, rv)) != 0) return rc;
+            has = 1;
+        } else if (rc != ALTSQL_NOTFOUND) return rc;
+    }
+    for (i = 0; i < T->nidx; i++) {
+        const struct asd_index *I = &T->idx[i];
+        uint32_t on = 0, nn = 0;
+        if (has && !(on = asd_ikey(db, T, I, old, tk + tks, tkn - tks, ok))) return ASD_CORRUPT(db, "a row's index entry does not fit in a key");
+        if (nv && !(nn = asd_ikey(db, T, I, nv, tk + tks, tkn - tks, nk))) return asd_err(db, ALTSQL_TOOBIG, "index entry too long for a key");
+        if (on && on == nn && !memcmp(ok, nk, on)) continue;          /* the same entry, the same row */
+        if (on && (rc = asd_write(db, 0, ok, on, 0, 0)) != 0)
+            return rc == ALTSQL_NOTFOUND ? ASD_CORRUPT(db, "a row's index entry is missing") : rc;
+        if (nn && (rc = asd_write(db, 1, nk, nn, I->unique ? tk + tks : NULL, I->unique ? tkn - tks : 0)) != 0) return rc;
+    }
+    return ALTSQL_OK;
+}
+
 /* ---- One way to write a row -----------------------------------------------------------------
  * Every change to a table's rows goes through these two functions, whichever interface asks for
  * it: the row calls, SQL's INSERT, UPDATE and DELETE, DROP TABLE and sync. asd_row_check does all
  * that can refuse a row (the values in their columns' types, the key, and for INSERT the check
  * that no row has the key yet) and writes nothing. asd_row_write writes the row, or deletes it.
  * So a refused row changes nothing, whichever interface sent it, and both interfaces keep the
- * same rules. Secondary indexes, when they come, are kept in asd_row_write, once. */
-enum { ASD_OP_INSERT = 1, ASD_OP_REPLACE, ASD_OP_UPDATE, ASD_OP_DELETE, ASD_OP_SYNC };
-
+ * same rules. Secondary indexes are checked in asd_row_check (entries that fit, UNIQUE) and
+ * kept in asd_row_write, once, for every writer. */
 static int asd_row_check(altsql_db *db, const struct asd_table *T, int op, const altsql_value *row,
                          altsql_value *v, uint8_t *tk, uint32_t room, uint32_t *tkn, const char *dup) {
     altsql_value key[ALTSQL_DB_MAXCOLS];
@@ -2525,18 +2834,54 @@ static int asd_row_check(altsql_db *db, const struct asd_table *T, int op, const
         if (rc == ALTSQL_OK) { asd_unpin(db, fi); return asd_err(db, ALTSQL_EXISTS, dup ? dup : "a row with that key is already there"); }
         if (rc != ALTSQL_NOTFOUND) return rc;
     }
+    if (T->nidx) {
+        uint32_t tks = asd_kslen(T->ks);
+        int fresh = (T->flags & ASD_F_ROWID) && (op == ASD_OP_INSERT || op == ASD_OP_REPLACE);
+        return asd_row_icheck(db, T, v, fresh ? NULL : tk + tks, fresh ? 0 : *tkn - tks);
+    }
     return ALTSQL_OK;
 }
 
 /* v: the row's values, packed into buf; or pv and pvn, the row as stored already (sync keeps a
- * device's payload as it was sent; T is NULL there). A new row of a table without a primary key
+ * device's payload as it was sent, and its indexed values are read from it). A new row of a table without a primary key
  * gets its hidden number here, so tk needs room for it. */
-static int asd_row_write(altsql_db *db, const struct asd_table *T, int op, uint8_t *tk, uint32_t tkn,
-                         const altsql_value *v, uint8_t *buf, const uint8_t *pv, uint32_t pvn) {
+static int asd_row_write1(altsql_db *db, const struct asd_table *T, int op, uint8_t *tk, uint32_t tkn,
+                          const altsql_value *v, uint8_t *buf, const uint8_t *pv, uint32_t pvn, const altsql_value *ov) {
+    int rc, fresh = T && (op == ASD_OP_INSERT || op == ASD_OP_REPLACE) && (T->flags & ASD_F_ROWID);
+    if (fresh) tkn += asd_rowid(db, tk + tkn);          /* a new hidden key: no row there to read */
+    if (T && T->nidx) {                                  /* the indexes first: the old row is still there to read */
+        altsql_value dv[ALTSQL_DB_MAXCOLS];
+        const altsql_value *nv = v;
+        if (op != ASD_OP_DELETE && !v) {                 /* a synced row: its values from its key and payload */
+            if ((rc = asd_rowdecode(db, T, tk, tkn, pv, pvn, dv)) != 0) return rc;
+            nv = dv;
+        }
+        if ((rc = asd_index_keep(db, T, fresh ? ASD_OP_INSERT : op, tk, tkn, op == ASD_OP_DELETE ? NULL : nv, ov)) != 0) return rc;
+    }
     if (op == ASD_OP_DELETE) return asd_write(db, 0, tk, tkn, 0, 0);
-    if (T && (op == ASD_OP_INSERT || op == ASD_OP_REPLACE) && (T->flags & ASD_F_ROWID)) tkn += asd_rowid(db, tk + tkn);
     if (v) { pvn = asd_rpack(T->types, T->ncols, v, buf); pv = buf; }
     return asd_write(db, 1, tk, tkn, pv, pvn);
+}
+
+/* With indexes a row is several writes: one transaction holds them, and a failure after the
+ * first fails the caller's. ov: the row there now, when the caller has just read it (an UPDATE
+ * or a DELETE through a plan); its text may lie in db->rowbuf, which is then left alone. */
+static int asd_row_write_old(altsql_db *db, const struct asd_table *T, int op, uint8_t *tk, uint32_t tkn,
+                             const altsql_value *v, uint8_t *buf, const uint8_t *pv, uint32_t pvn, const altsql_value *ov) {
+    uint64_t before;
+    int rc, own = 0;
+    if (!T || !T->nidx) return asd_row_write1(db, T, op, tk, tkn, v, buf, pv, pvn, NULL);
+    if (!db->tx) { if ((rc = altsql_db_begin(db, 1)) != 0) return rc; own = 1; }
+    before = db->mods;
+    rc = asd_row_write1(db, T, op, tk, tkn, v, buf, pv, pvn, ov);
+    if (own) { if (rc) altsql_db_rollback(db); else rc = altsql_db_commit(db); }
+    else if (rc && rc != ALTSQL_NOTFOUND && db->mods != before) db->failed = 1;
+    return rc;
+}
+
+static int asd_row_write(altsql_db *db, const struct asd_table *T, int op, uint8_t *tk, uint32_t tkn,
+                         const altsql_value *v, uint8_t *buf, const uint8_t *pv, uint32_t pvn) {
+    return asd_row_write_old(db, T, op, tk, tkn, v, buf, pv, pvn, NULL);
 }
 
 /* row_put and row_insert. */
@@ -2613,6 +2958,7 @@ static int asd_row_start(altsql_db_cursor *c, altsql_db *db, const char *table,
     c->space = T->ks;
     c->state = 0;
     c->fi = ASD_NONE;
+    c->table = 0;
     if ((rc = asd_rowkey(db, T, prefix, nprefix, c->pre, sizeof c->pre, &n)) != 0) return rc;
     c->plen = (uint16_t)n;
     memcpy(c->key, c->pre, n);
@@ -2638,11 +2984,14 @@ int altsql_db_row_seek(altsql_db_cursor *c, altsql_db *db, const char *table,
     c->space = T->ks;
     c->state = 0;
     c->fi = ASD_NONE;
+    c->table = 0;
     if ((rc = asd_rowkey(db, T, prefix, nprefix, c->pre, sizeof c->pre, &n)) != 0) return rc;
     c->plen = (uint16_t)n;
     memcpy(c->key, c->pre, n);
     return asd_cland(c, asd_cseek(c, c->key, n, &found), 2);
 }
+
+static int asd_index_row(altsql_db_cursor *c, altsql_value *cols, int ncols);
 
 int altsql_db_row_read(altsql_db_cursor *c, altsql_value *cols, int ncols) {
     struct asd_table *T;
@@ -2651,6 +3000,7 @@ int altsql_db_row_read(altsql_db_cursor *c, altsql_value *cols, int ncols) {
     int rc;
     if (!c || !c->db || !cols) return ALTSQL_MISUSE;
     if (c->state != 1) return ALTSQL_NOTFOUND;
+    if (c->table) return asd_index_row(c, cols, ncols);   /* an index's cursor: the row its entry names */
     db = c->db;
     if ((rc = asd_ready(db)) != 0 || (rc = asd_table_byks(db, c->space, &T)) != 0) return rc;
     if (ncols < T->ncols) return asd_err(db, ALTSQL_MISUSE, "cols has fewer slots than the table has columns");
@@ -2661,17 +3011,11 @@ int altsql_db_row_read(altsql_db_cursor *c, altsql_value *cols, int ncols) {
 int altsql_db_tables(altsql_db *db, int (*cb)(void *ctx, const char *name, int kind), void *ctx) {
     altsql_db_cursor c;
     uint8_t v[40];
-    uint32_t n;
     size_t vn;
-    int rc, found;
+    int rc;
     if (!db || !cb) return ALTSQL_MISUSE;
     if ((rc = asd_ready(db)) != 0) return rc;
-    c.db = db; c.space = ASD_KS_CAT; c.state = 0; c.fi = ASD_NONE;
-    n = asd_ksput(c.pre, ASD_KS_CAT);
-    c.pre[n++] = 'k';                                    /* the entries by key space: kind, then name */
-    c.plen = (uint16_t)n;
-    memcpy(c.key, c.pre, n);
-    rc = asd_cland(&c, asd_cseek(&c, c.key, n, &found), 2);
+    rc = asd_cfirst(&c, db, ASD_KS_CAT, (const uint8_t *)"k", 1);   /* the entries by key space: kind, then name */
     while (rc == ALTSQL_OK) {
         char name[32];
         if ((rc = altsql_db_value(&c, v, sizeof v, &vn)) != 0) return rc == ALTSQL_DB_SHORT ? ASD_CORRUPT(db, "damaged catalog") : rc;
@@ -2685,14 +3029,19 @@ int altsql_db_tables(altsql_db *db, int (*cb)(void *ctx, const char *name, int k
     return rc == ALTSQL_NOTFOUND ? ALTSQL_OK : rc;
 }
 
-/* A table's rows, each through asd_row_write, then its two catalog entries, in the open write
- * transaction: DROP TABLE and altsql_db_table_drop both come here. */
-static int asd_table_drop_rows(altsql_db *db, const struct asd_table *T, uint64_t *count) {
+static int asd_index_gone(altsql_db *db, uint32_t tks, uint32_t iks);
+
+/* A table's indexes, then its rows, each through asd_row_write, then its two catalog entries,
+ * in the open write transaction: DROP TABLE and altsql_db_table_drop both come here. */
+static int asd_table_drop_rows(altsql_db *db, const struct asd_table *TP, uint64_t *count) {
+    struct asd_table Tx = *TP, *T = &Tx;
     altsql_db_cursor c;
     uint8_t k[ALTSQL_DB_MAXKEY + 8];
-    uint32_t kn;
+    uint32_t kn, i;
     int rc;
     *count = 0;
+    for (i = 0; i < Tx.nidx; i++) if ((rc = asd_index_gone(db, Tx.ks, Tx.idx[i].ks)) != 0) return rc;
+    Tx.nidx = 0;
     for (;;) {                                           /* the first row, again and again */
         rc = altsql_db_row_seek(&c, db, T->name, NULL, 0);
         if (rc == ALTSQL_NOTFOUND) break;
@@ -2725,6 +3074,312 @@ int altsql_db_table_drop(altsql_db *db, const char *table) {
     if (own) { if (rc) altsql_db_rollback(db); else rc = altsql_db_commit(db); }
     else if (rc && db->mods != before) db->failed = 1;
     return rc;
+}
+
+/* ---- Secondary indexes: made, dropped, read -------------------------------------------------- */
+
+/* An index by name: its key space and its table's. */
+static int asd_index_find(altsql_db *db, const char *name, size_t nlen, uint32_t *iks, uint32_t *tks) {
+    uint8_t k[48], v[16];
+    uint32_t kn, fi, ix;
+    size_t vn;
+    int rc;
+    if (!nlen || nlen > 31) return asd_err(db, ALTSQL_SCHEMA, "no such index");
+    kn = asd_catkey(k, 1, name, nlen, 0);
+    rc = asd_find(db, k, kn, &fi, &ix);
+    if (rc == ALTSQL_NOTFOUND) return asd_err(db, ALTSQL_SCHEMA, "no such index");
+    if (rc) return rc;
+    rc = asd_value(db, ASD_PAGE(db, fi), ix, v, sizeof v, &vn);
+    asd_unpin(db, fi);
+    if (rc == ALTSQL_DB_SHORT || (!rc && vn && v[0] != ASD_K_INDEX)) return asd_err(db, ALTSQL_MISUSE, "that name is not an index's");
+    if (rc) return rc;
+    if (vn != 9) return ASD_CORRUPT(db, "damaged catalog");
+    *iks = as_get32(v + 1);
+    *tks = as_get32(v + 5);
+    return ALTSQL_OK;
+}
+
+/* Every entry of a key space, the first again and again. */
+static int asd_space_clear(altsql_db *db, uint32_t ks) {
+    altsql_db_cursor c;
+    uint8_t k[ALTSQL_DB_MAXKEY + 8];
+    uint32_t kn;
+    int rc;
+    for (;;) {
+        rc = asd_cfirst(&c, db, ks, NULL, 0);
+        if (rc == ALTSQL_NOTFOUND) return ALTSQL_OK;
+        if (rc) return rc;
+        kn = c.klen;
+        memcpy(k, c.key, kn);
+        if ((rc = asd_write(db, 0, k, kn, 0, 0)) != 0) return rc == ALTSQL_NOTFOUND ? ASD_CORRUPT(db, "an entry the cursor found could not be deleted") : rc;
+    }
+}
+
+/* An index's entries, then its three catalog entries, in the open write transaction. */
+static int asd_index_gone(altsql_db *db, uint32_t tks, uint32_t iks) {
+    uint8_t k[48], v[40];
+    uint32_t kn, fi, ix;
+    size_t vn;
+    int rc;
+    if ((rc = asd_space_clear(db, iks)) != 0) return rc;
+    kn = asd_catkey(k, 0, 0, 0, iks);
+    if ((rc = asd_find(db, k, kn, &fi, &ix)) != 0) return rc == ALTSQL_NOTFOUND ? ASD_CORRUPT(db, "damaged catalog") : rc;
+    rc = asd_value(db, ASD_PAGE(db, fi), ix, v, sizeof v, &vn);
+    asd_unpin(db, fi);
+    if (rc || vn < 2 || vn > 32 || v[0] != ASD_K_INDEX) return rc && rc != ALTSQL_DB_SHORT ? rc : ASD_CORRUPT(db, "damaged catalog");
+    if ((rc = asd_write(db, 0, k, kn, 0, 0)) != 0) return rc;
+    kn = asd_catkey(k, 1, (const char *)v + 1, vn - 1, 0);
+    if ((rc = asd_write(db, 0, k, kn, 0, 0)) != 0) return rc;
+    kn = asd_ksput(k, ASD_KS_CAT);
+    k[kn++] = 'i';
+    kn += asd_ksput(k + kn, tks);
+    kn += asd_ksput(k + kn, iks);
+    if ((rc = asd_write(db, 0, k, kn, 0, 0)) != 0) return rc;
+    db->ntabs = 0;
+    return ALTSQL_OK;
+}
+
+/* The longest a value of a column's type can be in a key. */
+static uint32_t asd_kmax(int t) { return t == AS_T_TEXT ? 512u : t == AS_T_FLOAT ? 4u : t == AS_T_REAL ? 8u : 9u; }
+
+/* A new index on T, filled from T's rows, in the open write transaction. *iks: its key space,
+ * once its catalog entries are written. */
+static int asd_index_new(altsql_db *db, const struct asd_table *T, const char *name, size_t nlen,
+                         const uint8_t *cols, uint32_t ncols, int unique, uint32_t *iks) {
+    struct asd_table X = *T;                     /* T with only the new index: the rows fill it */
+    struct asd_index *I = &X.idx[0];
+    altsql_db_cursor c;
+    uint8_t k[48], v[48], ek[ALTSQL_DB_MAXKEY + 16];
+    uint32_t kn, i;
+    int rc;
+    if (T->nidx >= ALTSQL_DB_MAXINDEXES) return asd_err(db, ALTSQL_FULL, "a table has up to 8 indexes");
+    if (T->kind != ASD_K_TABLE) {
+        uint32_t most = 5 + ((T->flags & ASD_F_KV) ? 9 + 512 : 27);
+        if (unique) return asd_err(db, ALTSQL_MISUSE, "a synced table takes indexes that are not UNIQUE");
+        for (i = 0; i < ncols; i++) most += asd_kmax(T->types[cols[i]]);
+        if (most > db->maxkey) return asd_err(db, ALTSQL_TOOBIG, "an index on a synced table must fit any row: its columns can be too long for a key at this page size");
+    }
+    if (db->nextks == ASD_NONE) return asd_err(db, ALTSQL_FULL, "no key space numbers left");
+    X.nidx = 1;
+    I->ks = db->nextks++;
+    I->unique = (uint8_t)(unique != 0);
+    I->ncols = (uint8_t)ncols;
+    memcpy(I->cols, cols, ncols);
+    db->mods++;
+    kn = asd_catkey(k, 1, name, nlen, 0);                /* 'n' + name: kind, its key space, the table's */
+    v[0] = ASD_K_INDEX;
+    as_put32(v + 1, I->ks);
+    as_put32(v + 5, T->ks);
+    if ((rc = asd_write(db, 1, k, kn, v, 9)) != 0) return rc;
+    kn = asd_catkey(k, 0, 0, 0, I->ks);                  /* 'k' + its key space: kind, name */
+    memcpy(v + 1, name, nlen);
+    if ((rc = asd_write(db, 1, k, kn, v, 1 + (uint32_t)nlen)) != 0) return rc;
+    kn = asd_ksput(k, ASD_KS_CAT);                       /* 'i' + the table's + its own: what it holds */
+    k[kn++] = 'i';
+    kn += asd_ksput(k + kn, T->ks);
+    kn += asd_ksput(k + kn, I->ks);
+    v[0] = I->unique;
+    v[1] = I->ncols;
+    memcpy(v + 2, cols, ncols);
+    if ((rc = asd_write(db, 1, k, kn, v, 2 + ncols)) != 0) return rc;
+    db->ntabs = 0;
+    *iks = I->ks;
+    rc = asd_cfirst(&c, db, T->ks, NULL, 0);
+    while (rc == ALTSQL_OK) {                            /* the rows already there */
+        altsql_value row[ALTSQL_DB_MAXCOLS];
+        size_t vn;
+        uint32_t en, tks = c.plen;
+        if ((rc = altsql_db_value(&c, db->rowbuf, ASD_ROWBUF, &vn)) != 0) return rc == ALTSQL_DB_SHORT ? ASD_CORRUPT(db, "row too large") : rc;
+        if ((rc = asd_rowdecode(db, T, c.key, c.klen, db->rowbuf, (uint32_t)vn, row)) != 0) return rc;
+        if (I->unique && (rc = asd_row_icheck(db, &X, row, c.key + tks, c.klen - tks)) != 0)
+            return rc == ALTSQL_EXISTS ? asd_err(db, ALTSQL_EXISTS, "two rows have the same values for the UNIQUE index") : rc;
+        if (!(en = asd_ikey(db, &X, I, row, c.key + tks, c.klen - tks, ek)))
+            return asd_err(db, ALTSQL_TOOBIG, "a row's index entry is too long for a key");
+        if ((rc = asd_write(db, 1, ek, en, I->unique ? c.key + tks : NULL, I->unique ? c.klen - tks : 0)) != 0) return rc;
+        rc = altsql_db_next(&c);
+    }
+    return rc == ALTSQL_NOTFOUND ? ALTSQL_OK : rc;
+}
+
+/* CREATE INDEX and altsql_db_index_create: the table's columns by name, then the index, in a
+ * transaction of its own or the caller's. ifne: an index of that name already there is fine. */
+static int asd_index_make(altsql_db *db, const char *table, size_t tlen, const char *name, size_t nlen,
+                          const char *const *cn, const size_t *cl, int ncols, int unique, int ifne) {
+    struct asd_table *TP, T;
+    uint8_t cols[ALTSQL_DB_INDEXCOLS], k[48];
+    uint32_t kn, fi, ix, a, b;
+    uint64_t before;
+    int rc, own = 0, i, j;
+    if (!asd_name_ok(name, nlen)) return asd_err(db, ALTSQL_SYNTAX, "an index name is a letter or _, then letters, digits or _, up to 31");
+    if (db->tx == 1) return asd_err(db, ALTSQL_MISUSE, "a read transaction cannot create an index");
+    kn = asd_catkey(k, 1, name, nlen, 0);
+    rc = asd_find(db, k, kn, &fi, &ix);
+    if (rc == ALTSQL_OK) {
+        asd_unpin(db, fi);
+        if (ifne && asd_index_find(db, name, nlen, &a, &b) == ALTSQL_OK) return ALTSQL_OK;
+        return asd_err(db, ALTSQL_EXISTS, "that name is taken");
+    }
+    if (rc != ALTSQL_NOTFOUND) return rc;
+    if ((rc = asd_table_get(db, table, tlen, &TP)) != 0) return rc;
+    if (ncols < 1 || ncols > ALTSQL_DB_INDEXCOLS) return asd_err(db, ALTSQL_SCHEMA, "an index has 1 to 4 columns");
+    for (i = 0; i < ncols; i++) {
+        int c = asd_col_index(TP, cn[i], cl[i]);
+        if (c < 0) return asd_err(db, ALTSQL_SCHEMA, "an index's columns must be the table's");
+        for (j = 0; j < i; j++) if (cols[j] == c) return asd_err(db, ALTSQL_SCHEMA, "a column appears twice in the index");
+        cols[i] = (uint8_t)c;
+    }
+    T = *TP;
+    if (!db->tx) { if ((rc = altsql_db_begin(db, 1)) != 0) return rc; own = 1; }
+    before = db->mods;
+    a = 0;
+    rc = asd_index_new(db, &T, name, nlen, cols, (uint32_t)ncols, unique, &a);
+    if (rc && !own && a && (rc == ALTSQL_EXISTS || rc == ALTSQL_TOOBIG)) {   /* refused while filled: taken away again */
+        char msg[sizeof db->err];
+        memcpy(msg, db->err, sizeof msg);
+        if (asd_index_gone(db, T.ks, a) == ALTSQL_OK) { memcpy(db->err, msg, sizeof msg); return rc; }
+    }
+    if (own) { if (rc) altsql_db_rollback(db); else rc = altsql_db_commit(db); }
+    else if (rc && db->mods != before) db->failed = 1;
+    return rc;
+}
+
+/* DROP INDEX and altsql_db_index_drop. */
+static int asd_index_unmake(altsql_db *db, const char *name, size_t nlen, int ifex) {
+    uint32_t iks, tks;
+    uint64_t before;
+    int rc, own = 0;
+    if (db->tx == 1) return asd_err(db, ALTSQL_MISUSE, "a read transaction cannot drop an index");
+    rc = asd_index_find(db, name, nlen, &iks, &tks);
+    if (rc == ALTSQL_SCHEMA && ifex) { db->err[0] = 0; return ALTSQL_OK; }
+    if (rc) return rc;
+    if (!db->tx) { if ((rc = altsql_db_begin(db, 1)) != 0) return rc; own = 1; }
+    before = db->mods;
+    rc = asd_index_gone(db, tks, iks);
+    if (own) { if (rc) altsql_db_rollback(db); else rc = altsql_db_commit(db); }
+    else if (rc && db->mods != before) db->failed = 1;
+    return rc;
+}
+
+int altsql_db_index_create(altsql_db *db, const char *table, const char *name, const char *columns, int unique) {
+    const char *cn[ALTSQL_DB_INDEXCOLS + 1];
+    size_t cl[ALTSQL_DB_INDEXCOLS + 1], i = 0;
+    int n = 0, rc;
+    if (!db || !table || !name || !columns) return ALTSQL_MISUSE;
+    if ((rc = asd_ready(db)) != 0) return rc;
+    while (columns[i]) {                                 /* the columns, by name */
+        size_t a;
+        while (columns[i] == ' ' || columns[i] == ',') i++;
+        a = i;
+        while (columns[i] && columns[i] != ',' && columns[i] != ' ') i++;
+        if (i == a) break;
+        if (n > ALTSQL_DB_INDEXCOLS) break;
+        cn[n] = columns + a;
+        cl[n++] = i - a;
+    }
+    if (n > ALTSQL_DB_INDEXCOLS) return asd_err(db, ALTSQL_SCHEMA, "an index has 1 to 4 columns");
+    return asd_index_make(db, table, strlen(table), name, strlen(name), cn, cl, n, unique, 0);
+}
+
+int altsql_db_index_drop(altsql_db *db, const char *name) {
+    int rc;
+    if (!db || !name) return ALTSQL_MISUSE;
+    if ((rc = asd_ready(db)) != 0) return rc;
+    return asd_index_unmake(db, name, strlen(name), 0);
+}
+
+/* An index's cursor: its key space, its table's in c->table, and the prefix's values. */
+static int asd_index_start(altsql_db_cursor *c, altsql_db *db, const char *index,
+                           const altsql_value *prefix, int nprefix) {
+    struct asd_table *T;
+    const struct asd_index *I = NULL;
+    uint32_t iks, tks, n, i;
+    int rc;
+    if (!c || !db || !index || (!prefix && nprefix)) return ALTSQL_MISUSE;
+    if ((rc = asd_ready(db)) != 0 || (rc = asd_index_find(db, index, strlen(index), &iks, &tks)) != 0 ||
+        (rc = asd_table_byks(db, tks, &T)) != 0) return rc;
+    for (i = 0; i < T->nidx; i++) if (T->idx[i].ks == iks) I = &T->idx[i];
+    if (!I) return ASD_CORRUPT(db, "damaged catalog: an index its table does not list");
+    if (nprefix < 0 || nprefix > I->ncols) return asd_err(db, ALTSQL_SCHEMA, "more prefix values than indexed columns");
+    c->db = db;
+    c->space = iks;
+    c->state = 0;
+    c->fi = ASD_NONE;
+    c->table = tks;
+    n = asd_ksput(c->pre, iks);
+    for (i = 0; i < (uint32_t)nprefix; i++) {
+        altsql_value v;
+        uint32_t w;
+        int t = T->types[I->cols[i]];
+        if ((rc = asd_coerce(db, t, &prefix[i], &v)) != 0) return rc;
+        if (!(w = asd_kenc(t, &v, c->pre + n, (uint32_t)sizeof c->pre - n))) return asd_err(db, ALTSQL_TOOBIG, "prefix too long for a cursor");
+        n += w;
+    }
+    c->plen = (uint16_t)n;
+    memcpy(c->key, c->pre, n);
+    return ALTSQL_OK;
+}
+
+int altsql_db_index_seek(altsql_db_cursor *c, altsql_db *db, const char *index,
+                         const altsql_value *prefix, int nprefix) {
+    int rc = asd_index_start(c, db, index, prefix, nprefix), found;
+    if (rc) return rc;
+    return asd_cland(c, asd_cseek(c, c->key, c->plen, &found), 2);
+}
+
+int altsql_db_index_last(altsql_db_cursor *c, altsql_db *db, const char *index,
+                         const altsql_value *prefix, int nprefix) {
+    int rc = asd_index_start(c, db, index, prefix, nprefix);
+    if (rc) return rc;
+    return asd_cland(c, asd_clast(c), 3);
+}
+
+/* The table key (key space included) of the row an entry names, in tk. */
+static int asd_ientry_tkey(altsql_db *db, const struct asd_table *T, const struct asd_index *I,
+                           const uint8_t *ek, uint32_t ekn, const uint8_t *val, uint32_t vn,
+                           uint8_t *tk, uint32_t *tkn) {
+    uint32_t n = asd_ksput(tk, T->ks), at;
+    if (I->unique) {
+        if (!vn || n + vn > db->maxkey) return ASD_CORRUPT(db, "damaged index entry");
+        memcpy(tk + n, val, vn);
+        *tkn = n + vn;
+        return ALTSQL_OK;
+    }
+    at = asd_ivals(T, I, ek, ekn);
+    if (!at || at >= ekn || n + (ekn - at) > db->maxkey) return ASD_CORRUPT(db, "damaged index entry");
+    memcpy(tk + n, ek + at, ekn - at);
+    *tkn = n + (ekn - at);
+    return ALTSQL_OK;
+}
+
+/* The row the entry under an index's cursor names: its table key in tk, its columns in row. */
+static int asd_ientry_read(altsql_db *db, const struct asd_table *T, const struct asd_index *I, altsql_db_cursor *c,
+                           uint8_t *tk, uint32_t *tkn, altsql_value *row) {
+    uint8_t val[ALTSQL_DB_MAXKEY + 16];
+    uint32_t fi, ix;
+    size_t vn = 0;
+    int rc;
+    if (I->unique && (rc = altsql_db_value(c, val, sizeof val, &vn)) != 0) return rc == ALTSQL_DB_SHORT ? ASD_CORRUPT(db, "damaged index entry") : rc;
+    if ((rc = asd_ientry_tkey(db, T, I, c->key, c->klen, val, (uint32_t)vn, tk, tkn)) != 0) return rc;
+    if ((rc = asd_find(db, tk, *tkn, &fi, &ix)) != 0) return rc == ALTSQL_NOTFOUND ? ASD_CORRUPT(db, "an index entry names a row that is not there") : rc;
+    rc = asd_value(db, ASD_PAGE(db, fi), ix, db->rowbuf, ASD_ROWBUF, &vn);
+    asd_unpin(db, fi);
+    if (rc) return rc == ALTSQL_DB_SHORT ? ASD_CORRUPT(db, "row too large") : rc;
+    return asd_rowdecode(db, T, tk, *tkn, db->rowbuf, (uint32_t)vn, row);
+}
+
+/* altsql_db_row_read on an index's cursor: the row its entry names. */
+static int asd_index_row(altsql_db_cursor *c, altsql_value *cols, int ncols) {
+    altsql_db *db = c->db;
+    struct asd_table *T;
+    const struct asd_index *I = NULL;
+    uint8_t tk[ALTSQL_DB_MAXKEY + 16];
+    uint32_t i, tkn;
+    int rc;
+    if ((rc = asd_ready(db)) != 0 || (rc = asd_table_byks(db, c->table, &T)) != 0) return rc;
+    for (i = 0; i < T->nidx; i++) if (T->idx[i].ks == c->space) I = &T->idx[i];
+    if (!I) return asd_err(db, ALTSQL_SCHEMA, "no such index");
+    if (ncols < T->ncols) return asd_err(db, ALTSQL_MISUSE, "cols has fewer slots than the table has columns");
+    return asd_ientry_read(db, T, I, c, tk, &tkn, cols);
 }
 
 /* ---- Sync from AltSql Core devices ---------------------------------------------------------
@@ -2844,17 +3499,18 @@ static int asd_sync_kvtable(altsql_db *db, uint32_t *ks) {
 static int asd_sync_rec(altsql_db *db, int64_t device, uint8_t type, uint32_t seq, const uint8_t *pl, uint32_t plen) {
     uint8_t k[ALTSQL_DB_MAXKEY + 8];
     uint32_t kn, ks, klen;
+    struct asd_table *T;
     int rc;
     if (type == AS_R_ROW) {
         uint32_t sid = as_get16(pl);
         rc = asd_sync_map(db, device, sid, &ks);
         if (rc == ALTSQL_NOTFOUND) return asd_err(db, ALTSQL_SCHEMA, "a row of a series this gateway has not seen defined");
-        if (rc) return rc;
+        if (rc || (rc = asd_table_byks(db, ks, &T)) != 0) return rc;   /* the table, for its indexes */
         kn = asd_ksput(k, ks);
         kn += asd_enc_int(k + kn, device);
         kn += asd_enc_int(k + kn, (int64_t)as_get64(pl + 2));
         kn += asd_enc_int(k + kn, (int64_t)seq);
-        return asd_row_write(db, NULL, ASD_OP_SYNC, k, kn, NULL, NULL, pl, plen);
+        return asd_row_write(db, T, ASD_OP_SYNC, k, kn, NULL, NULL, pl, plen);
     }
     klen = pl[0];
     if (pl[1] == 0x01) {                                 /* reserved keys */
@@ -2863,13 +3519,13 @@ static int asd_sync_rec(altsql_db *db, int64_t device, uint8_t type, uint32_t se
                                    pl + 1 + klen + 2, plen - 1 - klen - 2);
         return ALTSQL_OK;                                /* other reserved keys stay on the device */
     }
-    if ((rc = asd_sync_kvtable(db, &ks)) != 0) return rc;
+    if ((rc = asd_sync_kvtable(db, &ks)) != 0 || (rc = asd_table_byks(db, ks, &T)) != 0) return rc;
     kn = asd_ksput(k, ks);
     kn += asd_enc_int(k + kn, device);
     kn += asd_enc_text(k + kn, (const char *)pl + 1, klen);
     if (kn > db->maxkey) return asd_err(db, ALTSQL_TOOBIG, "device key too long for this page size");
-    if (type == AS_R_PUT) return asd_row_write(db, NULL, ASD_OP_SYNC, k, kn, NULL, NULL, pl, plen);
-    rc = asd_row_write(db, NULL, ASD_OP_DELETE, k, kn, NULL, NULL, NULL, 0);
+    if (type == AS_R_PUT) return asd_row_write(db, T, ASD_OP_SYNC, k, kn, NULL, NULL, pl, plen);
+    rc = asd_row_write(db, T, ASD_OP_DELETE, k, kn, NULL, NULL, NULL, 0);
     return rc == ALTSQL_NOTFOUND ? ALTSQL_OK : rc;
 }
 
@@ -2932,11 +3588,18 @@ fail:
  *                    joined by OR): one walk per value, in key order
  *   range scan       the first key columns fixed by =, then a range on the next one
  *   range per device a synced table, a range on time, no device given: one range per device
+ *   index lookup     every column of a secondary index fixed by =
+ *   index range      an index's first columns fixed by =, then a range on the next one, or
+ *                    only the first columns: entries in index order, each row read by its key
  *   full scan        anything else
- * WHERE is still checked on every row a plan reads, so a plan only narrows the reading. */
+ * An index is read when it fixes more than the primary key does: 2 for each column fixed by =
+ * and 1 for a range on the next; the primary key wins a tie. An UPDATE does not read an index
+ * whose columns it sets. WHERE is still checked on every row a plan reads, so a plan only
+ * narrows the reading. */
 #if ALTSQL_ENABLE_SQL
-enum { ASD_P_POINT = 1, ASD_P_RANGE, ASD_P_DEVICES, ASD_P_FULL, ASD_P_LIST };
+enum { ASD_P_POINT = 1, ASD_P_RANGE, ASD_P_DEVICES, ASD_P_FULL, ASD_P_LIST, ASD_P_INDEX };
 #define ASD_MAXLIST 64
+#define ASD_SQKEY   (ALTSQL_DB_MAXKEY + 600)   /* a key a plan builds: longer than any key means no row */
 
 typedef struct asd_bound { int eq, lo, hi; altsql_value veq, vlo, vhi; } asd_bound;
 
@@ -2952,6 +3615,9 @@ typedef struct asd_sq {
     void *actx;
     const uint8_t *ck, *resume;            /* the row's key; a prepared SELECT goes on after  */
     uint32_t ckn, rn;                      /* the resume key                                  */
+    const uint8_t *wk;                     /* the key the plan walks: the row's, or the entry's */
+    uint32_t wkn, setmask;                 /* columns an UPDATE sets                          */
+    int ix, ineq;                          /* an index plan: which index, columns fixed by =  */
 } asd_sq;
 
 /* A constant from WHERE, as a key column's value; 0 when it cannot narrow the reading. */
@@ -3036,6 +3702,20 @@ static void asd_plan_pick(asd_sq *s) {
     else if (s->neq > 0 || (next >= 0 && (s->b[next].lo || s->b[next].hi))) s->plan = ASD_P_RANGE;
     else if (T->kind == ASD_K_SYNCED && !(T->flags & ASD_F_KV) && (s->b[2].lo || s->b[2].hi || s->b[2].eq)) s->plan = ASD_P_DEVICES;
     else s->plan = ASD_P_FULL;
+    s->ix = -1;
+    if (T->nidx && s->plan != ASD_P_POINT) {             /* an index, when it fixes more */
+        int best = 2 * s->neq + (s->plan == ASD_P_LIST ? 2 : (next >= 0 && (s->b[next].lo || s->b[next].hi)) || s->plan == ASD_P_DEVICES ? 1 : 0);
+        uint32_t x, j;
+        for (x = 0; x < T->nidx; x++) {
+            const struct asd_index *I = &T->idx[x];
+            int eq = 0, sc;
+            while (eq < I->ncols && s->b[I->cols[eq]].eq) eq++;
+            sc = 2 * eq + (eq < I->ncols && (s->b[I->cols[eq]].lo || s->b[I->cols[eq]].hi) ? 1 : 0);
+            for (j = 0; j < I->ncols; j++) if (s->setmask & (1u << I->cols[j])) sc = 0;
+            if (sc > best) { best = sc; s->ix = (int)x; s->ineq = eq; }
+        }
+        if (s->ix >= 0) s->plan = ASD_P_INDEX;
+    }
 }
 
 /* A row the plan read: to Core's query, or for UPDATE and DELETE checked by WHERE and acted on. */
@@ -3062,7 +3742,11 @@ static int asd_sq_range(asd_sq *s, const uint8_t *pre, uint32_t plen, const uint
     altsql_value row[ALTSQL_DB_MAXCOLS];
     size_t vn;
     int rc, found, past = 0;
-    c.db = db; c.space = s->T.ks; c.state = 0; c.fi = ASD_NONE;
+    c.db = db; c.space = s->T.ks; c.state = 0; c.fi = ASD_NONE; c.table = 0;
+    if (plen > sizeof c.pre) {                           /* a long prefix: the cursor keeps its start, end stops at its end */
+        if (!end) { end = pre; en = plen; }
+        plen = sizeof c.pre;
+    }
     memcpy(c.pre, pre, plen);
     c.plen = (uint16_t)plen;
     memcpy(c.key, start, sn);
@@ -3081,8 +3765,8 @@ static int asd_sq_range(asd_sq *s, const uint8_t *pre, uint32_t plen, const uint
         }
         if ((rc = altsql_db_value(&c, db->rowbuf, ASD_ROWBUF, &vn)) != 0) return rc;
         if ((rc = asd_rowdecode(db, &s->T, c.key, c.klen, db->rowbuf, (uint32_t)vn, row)) != 0) return rc;
-        s->ck = c.key;
-        s->ckn = c.klen;
+        s->ck = s->wk = c.key;
+        s->ckn = s->wkn = c.klen;
         if ((rc = asd_sq_emit(s, row)) != 0) return rc;
         rc = altsql_db_next(&c);
     }
@@ -3104,27 +3788,96 @@ static int asd_sq_point(asd_sq *s, const uint8_t *k, uint32_t kn) {
     rc = asd_value(db, ASD_PAGE(db, fi), ix, db->rowbuf, ASD_ROWBUF, &vn);
     asd_unpin(db, fi);
     if (rc || (rc = asd_rowdecode(db, &s->T, k, kn, db->rowbuf, (uint32_t)vn, row)) != 0) return rc;
-    s->ck = k;
-    s->ckn = kn;
+    s->ck = s->wk = k;
+    s->ckn = s->wkn = kn;
     return asd_sq_emit(s, row);
 }
 
-/* The key bytes of the first neq key columns, then a bound on the next one (lo, hi or none). */
+/* Rows through an index: its entries from start up to end (as asd_sq_range), each row read by
+ * the key its entry names. */
+static int asd_sq_irange(asd_sq *s, const struct asd_index *I, const uint8_t *pre, uint32_t plen,
+                         const uint8_t *start, uint32_t sn, const uint8_t *end, uint32_t en) {
+    altsql_db *db = s->db;
+    altsql_db_cursor c;
+    altsql_value row[ALTSQL_DB_MAXCOLS];
+    uint8_t tk[ALTSQL_DB_MAXKEY + 16];
+    uint32_t tkn;
+    int rc, found, past = 0;
+    c.db = db; c.space = I->ks; c.state = 0; c.fi = ASD_NONE; c.table = 0;
+    if (plen > sizeof c.pre) {
+        if (!end) { end = pre; en = plen; }
+        plen = sizeof c.pre;
+    }
+    memcpy(c.pre, pre, plen);
+    c.plen = (uint16_t)plen;
+    memcpy(c.key, start, sn);
+    if (s->resume && asd_cmp(s->resume, s->rn, start, sn) >= 0) {
+        memcpy(c.key, s->resume, s->rn);
+        sn = s->rn;
+        past = 1;
+    }
+    rc = asd_cland(&c, asd_cseek(&c, c.key, sn, &found), 2);
+    if (rc == ALTSQL_OK && past && found) rc = altsql_db_next(&c);
+    while (rc == ALTSQL_OK && !s->q.stop) {
+        if (end) {
+            uint32_t n = c.klen < en ? c.klen : en;
+            if (memcmp(c.key, end, n) > 0) break;
+        }
+        if ((rc = asd_ientry_read(db, &s->T, I, &c, tk, &tkn, row)) != 0) return rc;
+        s->ck = tk;
+        s->ckn = tkn;
+        s->wk = c.key;
+        s->wkn = c.klen;
+        if ((rc = asd_sq_emit(s, row)) != 0) return rc;
+        rc = altsql_db_next(&c);
+    }
+    return rc == ALTSQL_NOTFOUND ? ALTSQL_OK : rc;
+}
+
+/* The key bytes of the first neq key columns, then a bound on the next one (lo, hi or none),
+ * in k (ASD_SQKEY bytes). ASD_SQKEY when the fixed values are longer than any key; a bound
+ * that does not fit is left out, which only widens the reading. */
 static uint32_t asd_sq_key(asd_sq *s, uint8_t *k, int extra, const altsql_value *bound, int64_t device, int bydev) {
-    uint32_t n = asd_ksput(k, s->T.ks);
+    uint32_t n = asd_ksput(k, s->T.ks), w;
     int i;
     if (bydev) n += asd_enc_int(k + n, device);
-    for (i = bydev; i < (bydev ? 1 : s->neq); i++) n += asd_kenc(s->T.types[s->T.key[i]], &s->b[s->T.key[i]].veq, k + n, 600);
-    if (extra >= 0 && bound) n += asd_kenc(s->T.types[extra], bound, k + n, 600);
+    for (i = bydev; i < (bydev ? 1 : s->neq); i++) {
+        if (n > ALTSQL_DB_MAXKEY || !(w = asd_kenc(s->T.types[s->T.key[i]], &s->b[s->T.key[i]].veq, k + n, ASD_SQKEY - n))) return ASD_SQKEY;
+        n += w;
+    }
+    if (extra >= 0 && bound && n <= ALTSQL_DB_MAXKEY && (w = asd_kenc(s->T.types[extra], bound, k + n, ASD_SQKEY - n)) != 0) n += w;
+    return n;
+}
+
+/* The same for an index: its key space, its first ineq columns, then a bound on the next. */
+static uint32_t asd_sq_ikey(asd_sq *s, const struct asd_index *I, uint8_t *k, int extra, const altsql_value *bound) {
+    uint32_t n = asd_ksput(k, I->ks), w;
+    int i;
+    for (i = 0; i < s->ineq; i++) {
+        int c = I->cols[i];
+        if (n > ALTSQL_DB_MAXKEY || !(w = asd_kenc(s->T.types[c], &s->b[c].veq, k + n, ASD_SQKEY - n))) return ASD_SQKEY;
+        n += w;
+    }
+    if (extra >= 0 && bound && n <= ALTSQL_DB_MAXKEY && (w = asd_kenc(s->T.types[extra], bound, k + n, ASD_SQKEY - n)) != 0) n += w;
     return n;
 }
 
 static int asd_sq_scan(asd_sq *s) {
     altsql_db *db = s->db;
-    uint8_t pre[ALTSQL_DB_MAXKEY + 600], lo[ALTSQL_DB_MAXKEY + 600], hi[ALTSQL_DB_MAXKEY + 600];
+    uint8_t pre[ASD_SQKEY], lo[ASD_SQKEY], hi[ASD_SQKEY];
     uint32_t pn, ln, hn;
     int next = s->neq < s->T.nkey ? s->T.key[s->neq] : -1, rc;
     if (s->plan == ASD_P_POINT) return asd_sq_point(s, pre, asd_sq_key(s, pre, -1, NULL, 0, 0));
+    if (s->plan == ASD_P_INDEX) {
+        const struct asd_index *I = &s->T.idx[s->ix];
+        int nc = s->ineq < I->ncols ? I->cols[s->ineq] : -1;
+        pn = asd_sq_ikey(s, I, pre, -1, NULL);
+        if (pn > db->maxkey) return ALTSQL_OK;
+        if (nc < 0) return asd_sq_irange(s, I, pre, pn, pre, pn, NULL, 0);
+        ln = asd_sq_ikey(s, I, lo, nc, s->b[nc].lo ? &s->b[nc].vlo : NULL);
+        hn = asd_sq_ikey(s, I, hi, nc, s->b[nc].hi ? &s->b[nc].vhi : NULL);
+        return asd_sq_irange(s, I, pre, pn, lo, ln, s->b[nc].hi ? hi : NULL, hn);
+    }
     if (s->plan == ASD_P_LIST) {                          /* one walk per value, in key order */
         int i, j, whole = s->neq + 1 == s->T.nkey && !(s->T.flags & ASD_F_ROWID);
         altsql_value *v = s->list;
@@ -3144,12 +3897,7 @@ static int asd_sq_scan(asd_sq *s) {
     }
     if (s->plan == ASD_P_DEVICES) {                       /* one range on time for each device */
         altsql_db_cursor d;
-        uint8_t k[8];
-        int found;
-        d.db = db; d.space = ASD_KS_SYNC; d.state = 0; d.fi = ASD_NONE;
-        d.plen = (uint16_t)asd_ksput(d.pre, ASD_KS_SYNC);
-        memcpy(k, d.pre, d.plen);
-        rc = asd_cland(&d, asd_cseek(&d, k, d.plen, &found), 2);
+        rc = asd_cfirst(&d, db, ASD_KS_SYNC, NULL, 0);
         while (rc == ALTSQL_OK && !s->q.stop) {
             int64_t dev;
             uint32_t w = asd_dec_int(d.key + d.plen, d.klen - d.plen, &dev);
@@ -3165,10 +3913,10 @@ static int asd_sq_scan(asd_sq *s) {
         return rc == ALTSQL_NOTFOUND ? ALTSQL_OK : rc;
     }
     pn = asd_sq_key(s, pre, -1, NULL, 0, 0);
+    if (pn > db->maxkey) return ALTSQL_OK;
     if (s->plan == ASD_P_FULL || next < 0) return asd_sq_range(s, pre, pn, pre, pn, NULL, 0);
     ln = asd_sq_key(s, lo, next, s->b[next].lo ? &s->b[next].vlo : NULL, 0, 0);
     hn = asd_sq_key(s, hi, next, s->b[next].hi ? &s->b[next].vhi : NULL, 0, 0);
-    if (pn > sizeof pre || ln > db->maxkey + 600) return ALTSQL_OK;
     return asd_sq_range(s, pre, pn, lo, ln, s->b[next].hi ? hi : NULL, hn);
 }
 
@@ -3181,7 +3929,28 @@ static int asd_explain(asd_sq *s, altsql_row_cb cb, void *ctx) {
     size_t n = 0;
     int i;
     n += (size_t)snprintf(detail + n, sizeof detail - n, "%s", s->T.name);
-    if (s->neq) {
+    if (s->plan == ASD_P_INDEX) {                        /* the index by name, its fixed columns, its range */
+        const struct asd_index *I = &s->T.idx[s->ix];
+        uint8_t k[16], nm[40];
+        uint32_t kn = asd_catkey(k, 0, 0, 0, I->ks), fi, ix;
+        size_t vn = 0;
+        nm[1] = '?';
+        if (asd_find(s->db, k, kn, &fi, &ix) == ALTSQL_OK) {
+            if (asd_value(s->db, ASD_PAGE(s->db, fi), ix, nm, sizeof nm, &vn) != ALTSQL_OK || vn < 2) vn = 2;
+            asd_unpin(s->db, fi);
+        } else vn = 2;
+        plan = s->ineq == I->ncols ? "index lookup" : "index range";
+        n += (size_t)snprintf(detail + n, sizeof detail - n, ", index %.*s", (int)(vn - 1), (const char *)nm + 1);
+        if (s->ineq && n < sizeof detail) {
+            n += (size_t)snprintf(detail + n, sizeof detail - n, ", fixed:");
+            for (i = 0; i < s->ineq && n < sizeof detail; i++)
+                n += (size_t)snprintf(detail + n, sizeof detail - n, " %s", s->T.cols[I->cols[i]]);
+        }
+        if (s->ineq < I->ncols && n < sizeof detail) {
+            int k2 = I->cols[s->ineq];
+            if (s->b[k2].lo || s->b[k2].hi) n += (size_t)snprintf(detail + n, sizeof detail - n, ", range on %s", s->T.cols[k2]);
+        }
+    } else if (s->neq) {
         n += (size_t)snprintf(detail + n, sizeof detail - n, ", fixed:");
         for (i = 0; i < s->neq && n < sizeof detail; i++)
             n += (size_t)snprintf(detail + n, sizeof detail - n, " %s", s->T.cols[s->T.key[i]]);
@@ -3376,12 +4145,47 @@ static int asd_select(altsql_db *db, as_parser *P, altsql_row_cb cb, void *cbctx
     return ALTSQL_OK;
 }
 
+/* CREATE [UNIQUE] INDEX [IF NOT EXISTS] name ON table (col [ASC], ...). */
+static int asd_sql_index(altsql_db *db, as_parser *P, int unique) {
+    const char *name, *tname, *cn[ALTSQL_DB_INDEXCOLS];
+    size_t nlen, tlen, cl[ALTSQL_DB_INDEXCOLS];
+    int ifne = 0, n = 0;
+    if (as_accept_kw(P, "IF")) {
+        if (!as_expect_kw(P, "NOT") || !as_expect_kw(P, "EXISTS")) return P->rc;
+        ifne = 1;
+    }
+    if (P->t.k != K_ID) return as_perr(P, "expected an index name near ");
+    name = P->t.s;
+    nlen = P->t.n;
+    as_lex(P);
+    if (!as_expect_kw(P, "ON")) return P->rc;
+    if (P->t.k != K_ID) return as_perr(P, "expected a table name near ");
+    tname = P->t.s;
+    tlen = P->t.n;
+    as_lex(P);
+    if (!as_expect_op(P, '(')) return P->rc;
+    do {
+        if (P->t.k != K_ID) return as_perr(P, "expected a column name near ");
+        if (n >= ALTSQL_DB_INDEXCOLS) return as_err(P->db, ALTSQL_SCHEMA, "an index has 1 to 4 columns");
+        cn[n] = P->t.s;
+        cl[n++] = P->t.n;
+        as_lex(P);
+        as_accept_kw(P, "ASC");
+    } while (as_accept_op(P, ','));
+    if (!as_expect_op(P, ')')) return P->rc;
+    if (P->t.k != K_END && !as_isop(P, ';')) return as_perr(P, "syntax error near ");
+    if (db->sqldry) return ALTSQL_OK;
+    return asd_index_make(db, tname, tlen, name, nlen, cn, cl, n, unique, ifne);
+}
+
 /* CREATE TABLE [IF NOT EXISTS] name (col type [PRIMARY KEY], ... [, PRIMARY KEY (a, b)]).
  * Without a primary key the first column leads the key and a hidden number keeps rows apart
  * in the order they arrived. */
 static int asd_sql_create(altsql_db *db, as_parser *P) {
     struct asd_table T;
     int ifne = 0, rc, own = 0, pkdone = 0;
+    if (as_accept_kw(P, "UNIQUE")) return as_expect_kw(P, "INDEX") ? asd_sql_index(db, P, 1) : P->rc;
+    if (as_accept_kw(P, "INDEX")) return asd_sql_index(db, P, 0);
     if (!as_expect_kw(P, "TABLE")) return P->rc;
     if (as_accept_kw(P, "IF")) {
         if (!as_expect_kw(P, "NOT") || !as_expect_kw(P, "EXISTS")) return P->rc;
@@ -3591,9 +4395,8 @@ typedef struct asd_chg {
 
 static int asd_del_act(asd_sq *s, altsql_value *row) {
     asd_chg *u = (asd_chg *)s->actx;
-    (void)row;
     u->count++;
-    return asd_row_write(s->db, &s->T, ASD_OP_DELETE, (uint8_t *)s->ck, s->ckn, NULL, NULL, NULL, 0);
+    return asd_row_write_old(s->db, &s->T, ASD_OP_DELETE, (uint8_t *)s->ck, s->ckn, NULL, NULL, NULL, 0, row);
 }
 
 static int asd_upd_act(asd_sq *s, altsql_value *row) {
@@ -3610,7 +4413,13 @@ static int asd_upd_act(asd_sq *s, altsql_value *row) {
         if ((rc = asd_coerce(s->db, s->T.types[u->col[i]], &v, &nv[u->col[i]])) != 0) return rc;
     }
     u->count++;
-    if (!u->keyset) return asd_row_write(s->db, &s->T, ASD_OP_UPDATE, (uint8_t *)s->ck, s->ckn, nv, u->pack, NULL, 0);
+    if (!u->keyset) {
+        if (s->T.nidx) {                                  /* the new values' entries: they fit, UNIQUE holds */
+            uint32_t tks = asd_kslen(s->T.ks);
+            if ((rc = asd_row_icheck(s->db, &s->T, nv, s->ck + tks, s->ckn - tks)) != 0) return rc;
+        }
+        return asd_row_write_old(s->db, &s->T, ASD_OP_UPDATE, (uint8_t *)s->ck, s->ckn, nv, u->pack, NULL, 0, row);
+    }
     vn = asd_rpack(s->T.types, s->T.ncols, nv, u->pack);
     if (u->used + 6 + s->ckn + vn > u->cap)
         return asd_err(s->db, ALTSQL_NOMEM, "an UPDATE of key columns changes more rows than SQL memory holds");
@@ -3680,6 +4489,7 @@ static int asd_sql_change(altsql_db *db, as_parser *P, int del) {
             if (!(u->e[u->n] = as_parse_expr(P))) return P->rc;
             if (as_resolve(P, &s->q, u->e[u->n], 0, 0) || as_checked(P, &s->q, u->e[u->n])) return P->rc;
             if (memchr(s->T.key, c, s->T.nkey)) u->keyset = 1;
+            s->setmask |= 1u << c;
             u->n++;
         } while (as_accept_op(P, ','));
     }
@@ -3709,11 +4519,24 @@ static int asd_sql_change(altsql_db *db, as_parser *P, int del) {
     return rc;
 }
 
-/* DROP TABLE [IF EXISTS] t: its rows, then its two catalog entries. */
+/* DROP TABLE [IF EXISTS] t: its indexes, its rows, then its two catalog entries. DROP INDEX
+ * [IF EXISTS] name: its entries, then its catalog entries. */
 static int asd_sql_drop(altsql_db *db, as_parser *P) {
     struct asd_table *TP, T;
     uint64_t before, count = 0;
     int rc, own = 0, ifex = 0;
+    if (as_accept_kw(P, "INDEX")) {
+        const char *name;
+        size_t nlen;
+        if (as_accept_kw(P, "IF")) { if (!as_expect_kw(P, "EXISTS")) return P->rc; ifex = 1; }
+        if (P->t.k != K_ID) return as_perr(P, "expected an index name near ");
+        name = P->t.s;
+        nlen = P->t.n;
+        as_lex(P);
+        if (P->t.k != K_END && !as_isop(P, ';')) return as_perr(P, "syntax error near ");
+        if (db->sqldry) return ALTSQL_OK;
+        return asd_index_unmake(db, name, nlen, ifex);
+    }
     if (!as_expect_kw(P, "TABLE")) return P->rc;
     if (as_accept_kw(P, "IF")) { if (!as_expect_kw(P, "EXISTS")) return P->rc; ifex = 1; }
     if (P->t.k != K_ID) return as_perr(P, "expected a table name near ");
@@ -3881,6 +4704,93 @@ static int asd_plain(const char *s) {
     return 1;
 }
 
+/* ---- Statement savepoints -----------------------------------------------------------------------
+ * A statement that writes inside the caller's transaction runs under a savepoint (struct asd_sp).
+ * If it fails, it takes back its own changes and the transaction goes on as it was before the
+ * statement; I/O errors and damaged files still fail the transaction. A statement that runs in a
+ * transaction of its own needs none: its failure rolls that transaction back. The savepoint's
+ * memory comes from the statement's SQL memory: a copy of the free lists held in memory, then
+ * half of what is left for the pages it keeps. A statement that changes more pages written
+ * earlier in the transaction than that half holds fails the transaction if it fails. */
+static void asd_sp_begin(altsql_db *db, as_arena *A) {
+    struct asd_sp *s = &db->sp;
+    size_t left, n;
+    memset(s, 0, sizeof *s);
+    if (!(s->avpg = (uint32_t *)as_alloc(A, (size_t)db->nav * 4 + 8)) || !(s->avtag = (uint64_t *)as_alloc(A, (size_t)db->nav * 8 + 8)) ||
+        !(s->hopg = (uint32_t *)as_alloc(A, (size_t)db->nho * 4 + 8)) || !(s->hotag = (uint64_t *)as_alloc(A, (size_t)db->nho * 8 + 8)))
+        return;                                           /* no room: the statement runs without one */
+    if ((s->tfr = (uint32_t *)as_alloc(A, 256 * 4)) != NULL) s->tcap = 256;
+    left = A->cap - A->used;
+    if (left / 16 >= 256) {                               /* a sixteenth for the set of pages that left the cache */
+        size_t slots = 64;
+        while (slots * 8 <= left / 16) slots *= 2;
+        if ((s->aset = (uint32_t *)as_alloc(A, slots * 4)) != NULL) s->amask = (uint32_t)slots - 1;
+        left = A->cap - A->used;
+    }
+    n = left / 2 / ((size_t)db->ps + 4);
+    if (n < 4 || !(s->upg = (uint32_t *)as_alloc(A, n * 4)) || !(s->ubuf = (uint8_t *)as_alloc(A, n * db->ps))) return;
+    s->cap = (uint32_t)n;
+    if (db->nav) { memcpy(s->avpg, db->avpg, (size_t)db->nav * 4); memcpy(s->avtag, db->avtag, (size_t)db->nav * 8); }
+    if (db->nho) { memcpy(s->hopg, db->hopg, (size_t)db->nho * 4); memcpy(s->hotag, db->hotag, (size_t)db->nho * 8); }
+    s->root = db->root; s->npages = db->npages; s->nextks = db->nextks; s->rowctr = db->rowctr;
+    s->seqpg = db->seqpg; s->seqix = db->seqix; s->mods = db->mods;
+    s->nav = db->nav; s->nho = db->nho; s->flnext = db->flnext; s->fltail = db->fltail;
+    s->dhead = db->dhead; s->dtail = db->dtail; s->dcount = db->dcount; s->hhead = db->hhead; s->hcount = db->hcount;
+    s->nxnext = db->nxnext; s->nxleft = db->nxleft;
+    s->on = 1;
+}
+
+static void asd_sp_clear(altsql_db *db) {
+    struct asd_sp *s = &db->sp;
+    uint32_t i;
+    if (s->tcap)                                          /* the frames noted, or every frame */
+        for (i = 0; i < s->ntfr; i++) db->fr[s->tfr[i]].img = db->fr[s->tfr[i]].fresh = 0;
+    else for (i = 0; i < db->nfr; i++) db->fr[i].img = db->fr[i].fresh = 0;
+    s->on = 0;
+}
+
+/* The statement failed: back to how the transaction stood before it. */
+static void asd_sp_restore(altsql_db *db) {
+    struct asd_sp *s = &db->sp;
+    uint32_t i;
+    for (i = s->nkept; i-- > 0; ) {                       /* newest first, so a page's oldest copy wins */
+        uint32_t pg = s->upg[i], fi = asd_lookup(db, pg);
+        const uint8_t *src = s->ubuf + (size_t)i * db->ps;
+        if (fi != ASD_NONE) {                             /* in its frame, as it was: a frame the statement */
+            memcpy(ASD_PAGE(db, fi), src, db->ps);        /* took for it again stays, as the page's own   */
+            db->fr[fi].dirty = 1;
+            db->fr[fi].fresh = 0;
+        } else if (asd_wpage(db, pg, src)) db->failed = 1;
+    }
+    for (i = 0; i < db->nfr; i++)                         /* the statement's own pages leave the cache */
+        if (db->fr[i].fresh && db->fr[i].pg != ASD_NONE) {
+            if (db->fr[i].pin) db->fr[i].dirty = 0;
+            else asd_hdel(db, i);
+        }
+    if (s->nav) { memcpy(db->avpg, s->avpg, (size_t)s->nav * 4); memcpy(db->avtag, s->avtag, (size_t)s->nav * 8); }
+    if (s->nho) { memcpy(db->hopg, s->hopg, (size_t)s->nho * 4); memcpy(db->hotag, s->hotag, (size_t)s->nho * 8); }
+    db->root = s->root; db->npages = s->npages; db->nextks = s->nextks; db->rowctr = s->rowctr;
+    db->seqpg = s->seqpg; db->seqix = s->seqix; db->mods = s->mods;
+    db->nav = s->nav; db->nho = s->nho; db->flnext = s->flnext; db->fltail = s->fltail;
+    db->dhead = s->dhead; db->dtail = s->dtail; db->dcount = s->dcount; db->hhead = s->hhead; db->hcount = s->hcount;
+    db->nxnext = s->nxnext; db->nxleft = s->nxleft;
+    db->gen++;                                            /* cursors find their place again */
+    db->ntabs = 0;
+    db->nmaps = 0;
+    db->nknown = 0;
+}
+
+/* After the statement: rc as it ran. A failure that can be taken back is; the transaction goes on. */
+static int asd_sp_end(altsql_db *db, int rc) {
+    if (!db->sp.on) return rc;
+    if (rc != ALTSQL_OK && rc != ALTSQL_IOERR && rc != ALTSQL_CORRUPT && !db->sp.broken && db->tx == 2) {
+        db->failed = 0;                                   /* the transaction is usable again ...       */
+        asd_sp_restore(db);                               /* ... unless a page could not be put back   */
+    }
+    asd_sp_clear(db);
+    return rc;
+}
+
 static int asd_exec_text(altsql_db *db, const char *sql, size_t resv, altsql_row_cb cb, void *ctx) {
     as_parser P;
     as_arena A;
@@ -3900,12 +4810,17 @@ static int asd_exec_text(altsql_db *db, const char *sql, size_t resv, altsql_row
         db->sqlnst++;
         if (as_accept_kw(&P, "SELECT")) rc = asd_select(db, &P, cb, ctx, 0);
         else if (as_accept_kw(&P, "EXPLAIN")) rc = as_expect_kw(&P, "SELECT") ? asd_select(db, &P, cb, ctx, 1) : P.rc;
-        else if (as_accept_kw(&P, "CREATE")) rc = asd_sql_create(db, &P);
-        else if (as_accept_kw(&P, "INSERT")) rc = asd_sql_insert(db, &P);
-        else if (as_accept_kw(&P, "UPDATE")) rc = asd_sql_change(db, &P, 0);
-        else if (as_accept_kw(&P, "DELETE")) rc = asd_sql_change(db, &P, 1);
-        else if (as_accept_kw(&P, "DROP")) rc = asd_sql_drop(db, &P);
-        else rc = as_perr(&P, "expected SELECT, INSERT, UPDATE, DELETE, CREATE, DROP or EXPLAIN near ");
+        else {                                            /* a write: under a savepoint inside the caller's transaction */
+            if (db->tx == 2 && !db->failed && !db->sqldry) asd_sp_begin(db, &A);
+            if (as_accept_kw(&P, "CREATE")) rc = asd_sql_create(db, &P);
+            else if (as_accept_kw(&P, "INSERT")) rc = asd_sql_insert(db, &P);
+            else if (as_accept_kw(&P, "UPDATE")) rc = asd_sql_change(db, &P, 0);
+            else if (as_accept_kw(&P, "DELETE")) rc = asd_sql_change(db, &P, 1);
+            else if (as_accept_kw(&P, "DROP")) rc = asd_sql_drop(db, &P);
+            else rc = as_perr(&P, "expected SELECT, INSERT, UPDATE, DELETE, CREATE, DROP or EXPLAIN near ");
+            if (!rc && P.rc) rc = P.rc;
+            rc = asd_sp_end(db, rc);
+        }
         if (rc) break;
         if (P.rc) { rc = P.rc; break; }
         if (P.t.k != K_END && !as_isop(&P, ';')) { rc = as_perr(&P, "syntax error near "); break; }
@@ -3997,8 +4912,8 @@ static int asd_st_cb(void *ctx, int n, const altsql_value *v, const char *const 
     st->nrows++;
     if (st->stream && st->db->cursq) {                  /* where a run that goes on starts */
         const asd_sq *s = (const asd_sq *)st->db->cursq;
-        memcpy(st->rk, s->ck, s->ckn);
-        st->rkn = s->ckn;
+        memcpy(st->rk, s->wk, s->wkn);
+        st->rkn = s->wkn;
     }
     return 0;
 }
@@ -4232,6 +5147,48 @@ out:
     return rc;
 }
 
+/* Each index against its table, under the tree db->root is set to: every entry names a row whose
+ * values give that same entry, and there are as many entries as rows. With no two entries alike
+ * and each one a row's, the counts make it one entry for each row. */
+static int asd_chk_indexes(altsql_db *db, altsql_db_check_report *r) {
+    altsql_db_cursor ci;
+    int rc = asd_cfirst(&ci, db, ASD_KS_CAT, (const uint8_t *)"i", 1);
+    while (rc == ALTSQL_OK) {
+        struct asd_table *TP, T;
+        const struct asd_index *I = NULL;
+        altsql_db_cursor c;
+        uint32_t tks = 0, iks = 0, w, i;
+        uint64_t entries = 0, rows = 0;
+        w = asd_ksget(ci.key + ci.plen, ci.klen - ci.plen, &tks);
+        if (!w || asd_ksget(ci.key + ci.plen + w, ci.klen - ci.plen - w, &iks) != ci.klen - ci.plen - w)
+            return ASD_CORRUPT(db, "check: damaged catalog entry of an index");
+        if ((rc = asd_table_byks(db, tks, &TP)) != 0) return rc == ALTSQL_SCHEMA ? ASD_CORRUPT(db, "check: an index of no table") : rc;
+        T = *TP;
+        for (i = 0; i < T.nidx; i++) if (T.idx[i].ks == iks) I = &T.idx[i];
+        if (!I) return ASD_CORRUPT(db, "check: an index its table does not list");
+        rc = asd_cfirst(&c, db, iks, NULL, 0);
+        while (rc == ALTSQL_OK) {                        /* each entry: its row is there and gives it */
+            altsql_value row[ALTSQL_DB_MAXCOLS];
+            uint8_t tk[ALTSQL_DB_MAXKEY + 16], ek[ALTSQL_DB_MAXKEY + 16];
+            uint32_t tkn, en, tsl = asd_kslen(T.ks);
+            if ((rc = asd_ientry_read(db, &T, I, &c, tk, &tkn, row)) != 0) return rc;
+            en = asd_ikey(db, &T, I, row, tk + tsl, tkn - tsl, ek);
+            if (en != c.klen || memcmp(ek, c.key, en)) return ASD_CORRUPT(db, "check: an index entry differs from its row's values");
+            entries++;
+            rc = altsql_db_next(&c);
+        }
+        if (rc != ALTSQL_NOTFOUND) return rc;
+        rc = asd_cfirst(&c, db, T.ks, NULL, 0);          /* the table's rows, counted */
+        while (rc == ALTSQL_OK) { rows++; rc = altsql_db_next(&c); }
+        if (rc != ALTSQL_NOTFOUND) return rc;
+        if (rows != entries) return ASD_CORRUPT(db, "check: an index has more or fewer entries than its table has rows");
+        r->indexes++;
+        r->index_entries += entries;
+        rc = altsql_db_next(&ci);
+    }
+    return rc == ALTSQL_NOTFOUND ? ALTSQL_OK : rc;
+}
+
 int altsql_db_check(altsql_db *db, int slot, void *mem, size_t mem_size, altsql_db_check_report *rep) {
     asd_chk k;
     asd_hdr x;
@@ -4290,11 +5247,18 @@ int altsql_db_check(altsql_db *db, int slot, void *mem, size_t mem_size, altsql_
         rep->free_entries += count;
         if (!rc && count != (list ? x.nxcount : x.flcount)) rc = ASD_CORRUPT(db, "check: free-list count differs from the header");
     }
+    for (pg = 2; pg < x.npages && !rc; pg++)
+        if (!(k.bits[pg >> 3] & (1u << (pg & 7)))) rc = ASD_CORRUPT(db, "check: a page is neither in use nor free");
+    if (!rc) {                                     /* the indexes, read under this header's tree */
+        uint32_t root = db->root;
+        db->root = x.root;
+        db->ntabs = 0;
+        rc = asd_chk_indexes(db, rep);
+        db->root = root;
+        db->ntabs = 0;
+    }
     db->npages = saved;
-    if (rc) return rc;
-    for (pg = 2; pg < x.npages; pg++)
-        if (!(k.bits[pg >> 3] & (1u << (pg & 7)))) return ASD_CORRUPT(db, "check: a page is neither in use nor free");
-    return ALTSQL_OK;
+    return rc;
 }
 
 /* ---- POSIX file port ------------------------------------------------------------------------- */

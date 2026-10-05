@@ -1,5 +1,5 @@
 for c in gcc clang; do \
-  for t in test_db test_rows test_sync test_sql test_same; do \
+  for t in test_db test_rows test_sync test_sql test_same test_savepoint test_index; do \
     $c -std=c99 -pedantic -Wall -Wextra -Wshadow -Werror -D_POSIX_C_SOURCE=200809L -O2 -I../../core/dist -I. -Itests -o build/strict_${c}_$t tests/$t.c -lm || exit 1; \
   done; \
   $c -std=c99 -pedantic -Wall -Wextra -Wshadow -Werror -D_POSIX_C_SOURCE=200809L -O2 -I../../core/dist -I. -Itests -o build/strict_${c}_shell tools/shell.c -lm || exit 1; \

@@ -1,8 +1,12 @@
-AltSql DB 0.2.0-alpha: fault injection
+AltSql DB 0.3.0-alpha: fault injection
   seed 11, 512-byte pages: 338 runs, each with one failing call, all clean
   seed 12, 512-byte pages: 361 runs, each with one failing call, all clean
   seed 13, 4096-byte pages: 97 runs, each with one failing call, all clean
   seed 14, 1024-byte pages: 295 runs, each with one failing call, all clean
   1091 runs; 78 failed commits turned out to be on disk after all
+  SQL with 3 indexes, seed 31, 512-byte pages: 156 runs, each with one failing call, all clean
+  SQL with 3 indexes, seed 32, 4096-byte pages: 36 runs, each with one failing call, all clean
+  SQL with 3 indexes, seed 33, 1024-byte pages: 66 runs, each with one failing call, all clean
+  258 runs; 24 failed commits on disk after all; the indexes checked against the table after every run and reopen
 all passed
 exit 0

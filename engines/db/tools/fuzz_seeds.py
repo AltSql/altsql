@@ -22,6 +22,11 @@ sql = [
     "DROP TABLE t3; CREATE TABLE t3 (x TIME, y LONG); INSERT INTO t3 VALUES (1, 2)",
     "DROP TABLE IF EXISTS nosuch; SELECT LENGTH(d), LOWER(d), ABS(c), ROUND(c, 1) FROM t1",
     "CREATE TABLE IF NOT EXISTS t4 (p TEXT, q INT, PRIMARY KEY (q, p)); INSERT INTO t4 VALUES ('a', 1)",
+    "EXPLAIN SELECT * FROM t1 WHERE d = 'a' AND c > 0; SELECT * FROM t1 WHERE d >= 'a' ORDER BY c",
+    "CREATE UNIQUE INDEX IF NOT EXISTS i4 ON t1 (a, b, d); DROP INDEX i1; CREATE INDEX i1 ON t1 (c, a)",
+    "UPDATE t2 SET v = v + 1 WHERE v > 0; INSERT OR REPLACE INTO t2 VALUES ('k9', 7, 1)",
+    "DELETE FROM t3 WHERE z = 'x'; UPDATE t3 SET z = 'y' WHERE y = 1; DROP TABLE t3",
+    "UPDATE t1 SET c = c / (a - 3), d = 'gone' WHERE d >= ''; SELECT * FROM t1",
 ]
 prep = [
     ("SELECT * FROM t1 WHERE a = ? AND b = ?", [(0, 1), (0, 2)]),
@@ -34,6 +39,7 @@ prep = [
 i = 0
 for q in sql:
     open(os.path.join(out, "sql%02d" % i), "wb").write(b"\x00" + q.encode()); i += 1
+    open(os.path.join(out, "sqltx%02d" % i), "wb").write(b"\x05" + q.encode()); i += 1
 for q, binds in prep:
     b = b"\x01" + q.encode() + b"\x00"
     for t, v in binds:
@@ -45,7 +51,7 @@ for k in range(6):
 for k in range(4):
     open(os.path.join(out, "sync%02d" % k), "wb").write(bytes([3 + k % 2]) + bytes(rnd.randrange(256) for _ in range(40 + 30 * k)))
 words = ["UPDATE", "DELETE", "DROP", "SET", "IN", "EXPLAIN", "REPLACE", "PRIMARY", "KEY", "?", "t1", "t2", "t3", "temps", "kv",
-         "a", "b", "c", "d", "k", "v", "w", "x", "y", "z", "device", "seq"]
+         "a", "b", "c", "d", "k", "v", "w", "x", "y", "z", "device", "seq", "INDEX", "UNIQUE", "ON", "IF", "EXISTS", "i1", "i2", "i3"]
 with open(dict_out, "w") as f:
     f.write(open(core_dict).read())
     for w in words:

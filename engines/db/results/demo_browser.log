@@ -1,30 +1,32 @@
-desktop ready in 392 ms | Ready: twelve devices, an hour of readings, 150 ms to start
-desktop step 1 | Ten more minutes: 5,040 readings from twelve devices in one file, 5,041 commits so far.
-desktop step 2 | range per device:12:732 | 12 rows, 732 read from the table, 3.3 ms | range per devicetemps, range on time
-desktop step 3 | same:ok | 2.2 µs a read | 137.2 µs a query
+desktop ready in 202 ms | Ready: twelve devices, an hour of readings, 98 ms to start
+desktop step 1 | Ten more minutes: 5,040 readings from twelve devices in one file, 5,042 commits so far.
+desktop step 2 | range per device:12:732 | 12 rows, 732 read from the table, 0.7 ms | range per devicetemps, range on time
+desktop step 3 | same:ok | 1.1 µs a read | 83.4 µs a query
 desktop step 4 | the commit under way:0:complete:complete | The power went while the gateway wrote a commit header. It opened at the commit under way, and no device lost a reading.
 desktop cuts | 7 logged | last, last, last, under way, last, under way, under way
-desktop   preset | 12 rows, 816 read from the table, 0.4 ms | range per devicetemps, range on time
+desktop   preset | 12 rows, 816 read from the table, 0.6 ms | range per devicetemps, range on time
 desktop   preset | 31 rows, 31 read from the table, 0.2 ms | range scantemps, fixed: device, range on time
-desktop   preset | 1 row, 1 read from the table, 0.3 ms | point lookuptemps, fixed: device time seq
-desktop   preset | 3 rows, 1,281 read from the table, 0.8 ms | key listtemps, list on device (3 values)
-desktop   preset | 10 rows, 5,124 read from the table, 1.7 ms | full scantemps
-desktop   preset | 3 rows, 5,124 read from the table, 2.5 ms | full scantemps
-desktop   preset | 7 rows, 36 read from the table, 0.3 ms | full scankv
-desktop played | 1:11
-phone ready in 220 ms | Ready: twelve devices, an hour of readings, 113 ms to start
-phone step 1 | Ten more minutes: 5,040 readings from twelve devices in one file, 5,041 commits so far.
-phone step 2 | range per device:12:732 | 12 rows, 732 read from the table, 3.3 ms | range per devicetemps, range on time
-phone step 3 | same:ok | 1.2 µs a read | 115.3 µs a query
+desktop   preset | 1 row, 1 read from the table, 0.2 ms | point lookuptemps, fixed: device time seq
+desktop   preset | 3 rows, 1,281 read from the table, 1.0 ms | key listtemps, list on device (3 values)
+desktop   preset | 10 rows, 5,124 read from the table, 1.4 ms | full scantemps
+desktop   preset | 10 rows, 634 read from the table, 0.6 ms | index rangetemps, index temps_machine, fixed: machine, range on temp
+desktop   preset | 3 rows, 5,124 read from the table, 1.5 ms | full scantemps
+desktop   preset | 7 rows, 36 read from the table, 0.1 ms | full scankv
+desktop played | 1:12
+phone ready in 211 ms | Ready: twelve devices, an hour of readings, 106 ms to start
+phone step 1 | Ten more minutes: 5,040 readings from twelve devices in one file, 5,042 commits so far.
+phone step 2 | range per device:12:732 | 12 rows, 732 read from the table, 1.0 ms | range per devicetemps, range on time
+phone step 3 | same:ok | 0.8 µs a read | 72.5 µs a query
 phone step 4 | the commit under way:0:complete:complete | The power went while the gateway wrote a commit header. It opened at the commit under way, and no device lost a reading.
 phone cuts | 7 logged | last, last, last, under way, last, under way, under way
-phone   preset | 12 rows, 816 read from the table, 0.4 ms | range per devicetemps, range on time
-phone   preset | 31 rows, 31 read from the table, 0.3 ms | range scantemps, fixed: device, range on time
-phone   preset | 1 row, 1 read from the table, 0.3 ms | point lookuptemps, fixed: device time seq
+phone   preset | 12 rows, 816 read from the table, 0.3 ms | range per devicetemps, range on time
+phone   preset | 31 rows, 31 read from the table, 0.1 ms | range scantemps, fixed: device, range on time
+phone   preset | 1 row, 1 read from the table, 0.2 ms | point lookuptemps, fixed: device time seq
 phone   preset | 3 rows, 1,281 read from the table, 0.7 ms | key listtemps, list on device (3 values)
-phone   preset | 10 rows, 5,124 read from the table, 1.1 ms | full scantemps
-phone   preset | 3 rows, 5,124 read from the table, 1.1 ms | full scantemps
-phone   preset | 7 rows, 36 read from the table, 0.1 ms | full scankv
+phone   preset | 10 rows, 5,124 read from the table, 1.2 ms | full scantemps
+phone   preset | 10 rows, 634 read from the table, 0.5 ms | index rangetemps, index temps_machine, fixed: machine, range on temp
+phone   preset | 3 rows, 5,124 read from the table, 1.0 ms | full scantemps
+phone   preset | 7 rows, 36 read from the table, 0.2 ms | full scankv
 phone played | 1:11
 all checks passed
 exit 0
