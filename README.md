@@ -8,7 +8,8 @@ records are the same on both, byte for byte, so there's nothing to translate
 in between. The device keeps working and deciding when the network is gone,
 and it sends less.
 
-**Status: 0.1.0-alpha.** Written to prove the design and measure it.
+**Status: 0.2.0-alpha** (AltSql DB 0.2.0-alpha, AltSql Core 0.1.0-alpha).
+Written to prove the design and measure it.
 Everything runs on a PC in simulation; nothing has run on a microcontroller
 or a gateway yet. File formats may still change. Not for production.
 
@@ -20,6 +21,11 @@ or a gateway yet. File formats may still change. Not for production.
 | [`engines/db/`](engines/db/) | **AltSql DB**, the database for a gateway that serves a whole fleet: one file for every device, read by key with no SQL step, or with SQL. Built on AltSql Core. |
 | [`demos/db/`](demos/db/) | The AltSql DB browser demo. Open `demos/db/app/index.html`; it runs straight from the folder. |
 
+Two command-line shells come with them: `altsql` for a device's database
+(`core/tools/cli.c`) and `altsql-db` for a gateway's (`engines/db/tools/shell.c`).
+Ready-made binaries for Linux x86-64 are on the
+[releases page](https://github.com/AltSql/altsql/releases).
+
 ## Build and test
 
 Linux, gcc or clang:
@@ -28,6 +34,10 @@ Linux, gcc or clang:
 cd core && make test
 cd engines/db && make test
 ```
+
+The shells: `cd core && make build/altsql`, then `cd engines/db && make shell`.
+`make test-shell` in `engines/db` carries records from a device file to a
+gateway file with both shells and checks every answer.
 
 Each folder's README says what each test checks, what was measured and the
 known limits. The logs behind the numbers are in `core/results/alpha/` and
@@ -38,7 +48,7 @@ known limits. The logs behind the numbers are in `core/results/alpha/` and
 - AltSql Core: https://altsql.com/demo/core/
 - AltSql DB: https://altsql.com/demo/db/
 
-More about AltSql and its other modules: https://altsql.com
+More about AltSql: https://altsql.com
 
 ## Security
 

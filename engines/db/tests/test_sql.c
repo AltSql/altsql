@@ -293,7 +293,7 @@ static int t_synced(void) {
         CHECK(altsql_put(dev, "site", d % 2 ? "north" : "south", 5) == ALTSQL_OK, "put");
         do {
             rc = altsql_sync_read(dev, 0, buf, sizeof buf, &n, &last, NULL, NULL);
-            CHECK(altsql_db_sync_apply(g_db, 1000 + d, buf, n, &conf) == ALTSQL_OK, "apply: %s", altsql_db_errmsg(g_db));
+            CHECK(altsql_db_sync_apply(g_db, 1000 + d, 0, buf, n, &conf) == ALTSQL_OK, "apply: %s", altsql_db_errmsg(g_db));
         } while (rc == ALTSQL_OK);
         altsql_close(dev);
     }

@@ -79,7 +79,12 @@ altsql> CREATE TABLE readings (time TIME, machine INT, temp FLOAT);
 altsql> INSERT INTO readings VALUES (1767225600, 1, 21.53), (1767225660, 2, 64.1);
 altsql> SELECT machine, AVG(temp), MAX(temp) FROM readings GROUP BY machine;
 altsql> .export
+altsql> .sync 0 batch.bin
 ```
+
+`.sync AFTER FILE` writes the records after position AFTER to a file, as the
+device would send them to its gateway; `altsql-db` (in `engines/db`) applies
+it on the gateway.
 
 ## Measured
 

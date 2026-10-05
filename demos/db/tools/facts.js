@@ -4,9 +4,9 @@
  */
 /* Runs the demo engine under Node and prints what the page shows: a check
  * that the WebAssembly build behaves as the native one.
- *   node tools/facts.js [app/engine-db.v1.js] */
+ *   node tools/facts.js [app/engine-db.v2.js] */
 'use strict';
-require(require('path').resolve(process.argv[2] || 'app/engine-db.v1.js'));
+require(require('path').resolve(process.argv[2] || 'app/engine-db.v2.js'));
 globalThis.AltSqlDbDemo.load().then(function (e) {
   var t0 = Date.now(), r, i, n = 0, kept = { 'the last commit': 0, 'the commit under way': 0 }, bad = 0;
   console.log('engine', e.version(), JSON.stringify(e.init()), (Date.now() - t0) + ' ms to start');

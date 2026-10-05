@@ -82,7 +82,7 @@ static int dev_sync(dev *d, altsql_db *gw, size_t cap) {
         rc = altsql_sync_read(d->db, d->confirmed, buf, cap, &n, &last, NULL, NULL);
         CHECK(rc >= 0, "sync_read: %d %s", rc, altsql_errmsg(d->db));
         if (n) {
-            int rc2 = altsql_db_sync_apply(gw, d->id, buf, n, &conf);
+            int rc2 = altsql_db_sync_apply(gw, d->id, d->confirmed, buf, n, &conf);
             if (rc2) return rc2;
             CHECK(conf == last, "confirmed %u, batch ends at %u", conf, last);
             d->confirmed = conf;
@@ -236,10 +236,10 @@ static int t_fleet(void) {
             CHECK(rc >= 0, "sync_read");
             note_batch(d[i].id, buf, n);
             if (n) {
-                CHECK(altsql_db_sync_apply(gw, d[i].id, buf, n, &conf) == ALTSQL_OK, "apply: %s", altsql_db_errmsg(gw));
+                CHECK(altsql_db_sync_apply(gw, d[i].id, d[i].confirmed, buf, n, &conf) == ALTSQL_OK, "apply: %s", altsql_db_errmsg(gw));
                 CHECK(conf == last, "confirmed position");
                 /* the same batch again changes nothing */
-                CHECK(altsql_db_sync_apply(gw, d[i].id, buf, n, &conf) == ALTSQL_OK && conf == last, "resend");
+                CHECK(altsql_db_sync_apply(gw, d[i].id, d[i].confirmed, buf, n, &conf) == ALTSQL_OK && conf == last, "resend");
                 d[i].confirmed = conf;
             }
         }
@@ -249,7 +249,7 @@ static int t_fleet(void) {
         do {
             rc = altsql_sync_read(d[i].db, d[i].confirmed, big, sizeof big, &n, &last, NULL, NULL);
             note_batch(d[i].id, big, n);
-            if (n) { CHECK(altsql_db_sync_apply(gw, d[i].id, big, n, &conf) == ALTSQL_OK, "apply"); d[i].confirmed = conf; }
+            if (n) { CHECK(altsql_db_sync_apply(gw, d[i].id, d[i].confirmed, big, n, &conf) == ALTSQL_OK, "apply"); d[i].confirmed = conf; }
         } while (rc == ALTSQL_OK);
         if (same_as_device(gw, &d[i])) return 1;
     }
@@ -257,13 +257,13 @@ static int t_fleet(void) {
     /* a stale batch, from before the confirmed position, is skipped */
     before = d[0].confirmed;
     rc = altsql_sync_read(d[0].db, 0, buf, 2000, &n, &last, NULL, NULL);
-    CHECK(altsql_db_sync_apply(gw, d[0].id, buf, n, &conf) == ALTSQL_OK && conf == before, "a stale batch moves nothing");
+    CHECK(altsql_db_sync_apply(gw, d[0].id, 0, buf, n, &conf) == ALTSQL_OK && conf == before, "a stale batch moves nothing");
     if (same_as_device(gw, &d[0])) return 1;
     /* a cut batch keeps what came before the cut */
     if (dev_work(&d[1], &s, 200)) return 1;
     rc = altsql_sync_read(d[1].db, d[1].confirmed, buf, sizeof buf, &n, &last, NULL, NULL);
     note_batch(d[1].id, buf, n);
-    rc = altsql_db_sync_apply(gw, d[1].id, buf, n / 2, &conf);
+    rc = altsql_db_sync_apply(gw, d[1].id, d[1].confirmed, buf, n / 2, &conf);
     CHECK(rc == ALTSQL_CORRUPT && conf > d[1].confirmed && conf < last, "a cut batch: %d, confirmed %u of %u", rc, conf, last);
     d[1].confirmed = conf;
     if (dev_sync(&d[1], gw, 5000) || same_as_device(gw, &d[1])) return 1;
@@ -277,7 +277,7 @@ static int t_fleet(void) {
         memcpy(copy, buf, n);
         copy[pos] ^= (uint8_t)(1 + xs(&s) % 255);
         rc = altsql_db_begin(gw, 1);
-        rc = altsql_db_sync_apply(gw, d[2].id, copy, n, &conf);
+        rc = altsql_db_sync_apply(gw, d[2].id, d[2].confirmed, copy, n, &conf);
         CHECK(rc == ALTSQL_OK || rc == ALTSQL_CORRUPT, "flipped byte %u: %d %s", pos, rc, altsql_db_errmsg(gw));
         CHECK(altsql_db_rollback(gw) == ALTSQL_OK, "rollback");
     }
@@ -287,7 +287,7 @@ static int t_fleet(void) {
         dev x;
         if (dev_open(&x, 77, 1) || dev_work(&x, &s, 30)) return 1;
         rc = altsql_sync_read(x.db, 0, buf, sizeof buf, &n, &last, NULL, NULL);
-        rc = altsql_db_sync_apply(gw, 77, buf, n, &conf);
+        rc = altsql_db_sync_apply(gw, 77, 0, buf, n, &conf);
         CHECK(rc == ALTSQL_SCHEMA && strstr(altsql_db_errmsg(gw), "temps"), "a different layout: %d %s", rc, altsql_db_errmsg(gw));
         CHECK(altsql_db_sync_state(gw, 77, &conf) == ALTSQL_OK && conf == 0, "a refused batch moves nothing");
         dev_close(&x);
@@ -362,11 +362,146 @@ static int t_powercut(int quick) {
     return 0;
 }
 
+/* ---- sync in order (0.2): devices that send several batches ahead over a link that loses,
+ * repeats and reorders them. Each batch carries the position it was read from; the gateway
+ * applies it only when nothing is missing before it, and otherwise answers ALTSQL_DB_GAP with
+ * its own position, from which the device sends again. Every record must arrive exactly once.
+ * The same run with every batch claiming position 0, which is what 0.1 assumed, must lose
+ * records: that shows the link is hard enough to find the gap. */
+typedef struct inflight { int dev; uint32_t after, last; uint32_t off, n; } inflight;
+#define NFLY 4096
+static inflight g_fly[NFLY];
+static uint8_t g_flybuf[16 << 20];
+static int count_rows(altsql_db *gw, dev *d) {
+    static const char *series[2] = { "temps", "status" };
+    altsql_db_cursor c;
+    altsql_value pre;
+    int si, rc, n = 0;
+    for (si = 0; si < 2; si++) {
+        pre.type = ALTSQL_INTEGER; pre.u.i = d->id; pre.len = 0;
+        rc = altsql_db_row_seek(&c, gw, series[si], &pre, 1);
+        while (rc == ALTSQL_OK) { n++; rc = altsql_db_next(&c); }
+    }
+    return n;
+}
+static int device_rows(dev *d) {
+    int n = 0;
+    g_dev.n = 0;
+    if (altsql_ts_scan(d->db, "temps", INT64_MIN, INT64_MAX, dev_row_cb, &g_dev) == ALTSQL_OK) n += g_dev.n;
+    g_dev.n = 0;
+    if (altsql_ts_scan(d->db, "status", INT64_MIN, INT64_MAX, dev_row_cb, &g_dev) == ALTSQL_OK) n += g_dev.n;
+    return n;
+}
+
+static int order_run(int old_way, uint32_t seed, long *lost_out, long stats[6]) {
+    static uint8_t mem[1 << 21];
+    ramfile rf;
+    altsql_db *gw;
+    dev d[4];
+    uint32_t s = seed, sendfrom[4];
+    int nfly = 0, i, round;
+    uint32_t used = 0;
+    long sent = 0, delivered = 0, dropped = 0, repeated = 0, gaps = 0, reordered = 0, lost = 0;
+    ram_new(&rf, 1u << 26, 1u << 26);
+    CHECK(db_open_ram(&gw, &rf, mem, sizeof mem, 4096) == ALTSQL_OK, "gateway open");
+    for (i = 0; i < 4; i++) { if (dev_open(&d[i], 3000 + i, 0)) return 1; sendfrom[i] = 0; }
+    for (round = 0; round < 150; round++) {
+        for (i = 0; i < 4; i++) {                       /* new records, then up to four batches sent ahead */
+            int k, nb = 1 + (int)(xs(&s) % 4);
+            if (dev_work(&d[i], &s, (int)(xs(&s) % 12))) return 1;
+            for (k = 0; k < nb && nfly < NFLY; k++) {
+                size_t n;
+                uint32_t last;
+                int rc = altsql_sync_read(d[i].db, sendfrom[i], g_flybuf + used, 64 + xs(&s) % 1500, &n, &last, NULL, NULL);
+                CHECK(rc >= 0, "sync_read: %d", rc);
+                if (!n) break;
+                g_fly[nfly].dev = i; g_fly[nfly].after = sendfrom[i]; g_fly[nfly].last = last;
+                g_fly[nfly].off = used; g_fly[nfly].n = (uint32_t)n;
+                nfly++; used += (uint32_t)n; sent++;
+                sendfrom[i] = last;                     /* the next batch goes on from here, without waiting */
+                CHECK(used < sizeof g_flybuf - 4096, "the link's buffer is full");
+            }
+        }
+        while (nfly > 0 && xs(&s) % 4 != 0) {           /* the link delivers some batches, in any order */
+            int j = (int)(xs(&s) % (uint32_t)nfly), r = (int)(xs(&s) % 100), rc;
+            inflight b = g_fly[j];
+            uint32_t pos = 0;
+            if (j != 0) reordered++;
+            if (r < 15) {                               /* lost */
+                g_fly[j] = g_fly[--nfly];
+                dropped++;
+                continue;
+            }
+            if (r >= 85) repeated++;                    /* delivered, and kept to arrive again later */
+            else g_fly[j] = g_fly[--nfly];
+            rc = altsql_db_sync_apply(gw, d[b.dev].id, old_way ? 0 : b.after, g_flybuf + b.off, b.n, &pos);
+            delivered++;
+            if (rc == ALTSQL_DB_GAP) gaps++;
+            else if (old_way && rc == ALTSQL_SCHEMA) continue;   /* 0.1's way: rows whose series definition was lost */
+            else CHECK(rc == ALTSQL_OK, "apply: %d %s", rc, altsql_db_errmsg(gw));
+            if (xs(&s) % 5 == 0) continue;              /* the answer is lost on the way back */
+            if (rc == ALTSQL_DB_GAP || pos < sendfrom[b.dev]) {
+                if (rc == ALTSQL_DB_GAP || xs(&s) % 3 == 0) sendfrom[b.dev] = pos;   /* send again from the gateway's position */
+            }
+            if (pos > d[b.dev].confirmed) d[b.dev].confirmed = pos;
+        }
+    }
+    while (nfly > 0) {                                  /* what is still on the link arrives late, in any order */
+        int j = (int)(xs(&s) % (uint32_t)nfly), rc;
+        inflight b = g_fly[j];
+        uint32_t pos = 0;
+        g_fly[j] = g_fly[--nfly];
+        rc = altsql_db_sync_apply(gw, d[b.dev].id, old_way ? 0 : b.after, g_flybuf + b.off, b.n, &pos);
+        delivered++;
+        if (j != 0) reordered++;
+        if (rc == ALTSQL_DB_GAP) gaps++;
+        else CHECK(rc == ALTSQL_OK || (old_way && rc == ALTSQL_SCHEMA), "late apply: %d %s", rc, altsql_db_errmsg(gw));
+    }
+    /* the link settles: the devices learn the gateway's position and send the rest in order */
+    for (i = 0; i < 4; i++) {
+        uint32_t pos;
+        CHECK(altsql_db_sync_state(gw, d[i].id, &pos) == ALTSQL_OK, "state");
+        d[i].confirmed = pos;
+        if (dev_sync(&d[i], gw, 4000) && !old_way) return 1;   /* 0.1's way can end refused: a lost series definition */
+        lost += device_rows(&d[i]) - count_rows(gw, &d[i]);
+        if (!old_way && same_as_device(gw, &d[i])) return 1;
+        dev_close(&d[i]);
+    }
+    altsql_db_close(gw);
+    ram_free(&rf);
+    *lost_out = lost;
+    stats[0] = sent; stats[1] = delivered; stats[2] = dropped; stats[3] = repeated; stats[4] = gaps; stats[5] = reordered;
+    return 0;
+}
+
+static int t_order(void) {
+    long lost = 0, lost_old = 0, st[6], st_old[6], tot[6] = { 0, 0, 0, 0, 0, 0 };
+    uint32_t seed;
+    int i;
+    for (seed = 1; seed <= 8; seed++) {
+        if (order_run(0, seed * 7919u, &lost, st)) return 1;
+        CHECK(lost == 0, "seed %u: %ld records missing with sync in order", seed, lost);
+        for (i = 0; i < 6; i++) tot[i] += st[i];
+    }
+    printf("  sync in order: 8 runs, 4 devices each sending up to 4 batches ahead: %ld batches sent, %ld delivered, "
+           "%ld lost on the link, %ld delivered twice, %ld out of order, %ld refused as gaps; every record applied exactly once\n",
+           tot[0], tot[1], tot[2], tot[3], tot[5], tot[4]);
+    for (seed = 1; seed <= 8; seed++) {
+        long l;
+        if (order_run(1, seed * 7919u, &l, st_old)) return 1;
+        lost_old += l;
+    }
+    CHECK(lost_old > 0, "the same link without positions lost nothing: the test is too easy");
+    printf("  the same 8 runs with every batch claiming position 0, as 0.1 assumed: %ld records lost\n", lost_old);
+    return 0;
+}
+
 int main(int argc, char **argv) {
     int quick = argc > 1 && !strcmp(argv[1], "quick");
     printf("AltSql DB %s: sync from AltSql Core devices\n", ALTSQL_DB_VERSION);
     if (t_fleet()) return 1;
     if (t_powercut(quick)) return 1;
+    if (t_order()) return 1;
     printf("all passed\n");
     return g_fail ? 1 : 0;
 }

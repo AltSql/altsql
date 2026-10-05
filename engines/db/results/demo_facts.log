@@ -1,4 +1,4 @@
-engine 0.1.0-alpha {"ok":true,"devices":12} 89 ms to start
+engine 0.2.0-alpha {"ok":true,"devices":12} 94 ms to start
 after ten more minutes: 5040 rows from 12 devices, 66 pages, 53.6 bytes per reading
 SELECT device, COUNT(*), AVG(temp) FROM temps WHERE time >= 1767228600 GROUP BY device -> 12 rows, 1452 read, plan range per device|temps, range on time
 SELECT * FROM temps WHERE device = 105 AND time > 1767229800 -> 0 rows, 1 read, plan range scan|temps, fixed: device, range on time

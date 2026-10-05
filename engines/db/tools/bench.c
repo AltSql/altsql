@@ -247,7 +247,7 @@ int main(int argc, char **argv) {
                 if (!n) continue;
                 busy = 1;
                 t = now();
-                if ((rc = altsql_db_sync_apply(db, 5000 + d, buf, n, &conf[d])) != 0) die("sync_apply", rc, altsql_db_errmsg(db));
+                if ((rc = altsql_db_sync_apply(db, 5000 + d, conf[d], buf, n, &conf[d])) != 0) die("sync_apply", rc, altsql_db_errmsg(db));
                 tsync += now() - t;
                 batches++;
                 records += (long)n / 30;

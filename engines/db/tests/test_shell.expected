@@ -1,0 +1,294 @@
+
+## usage
+$ altsql-db
+usage: altsql-db FILE                 interactive shell; creates FILE when it is missing
+       altsql-db FILE ARG [ARG ...]   run each ARG (SQL or a dot command), then exit
+       altsql-db --version
+(exit 2)
+
+## a Core device keeps two series and a pair
+$ altsql [new] [dev.db]
+created dev.db: 256 sectors of 4096 bytes
+$ altsql [dev.db]
+> CREATE TABLE temps (time TIME, machine INT, temp FLOAT);
+> CREATE TABLE status (time TIME, code INT, msg TEXT);
+> INSERT INTO temps VALUES (1700000001, 1, 21.5), (1700000002, 2, 22.25), (1700000003, 1, 21.75);
+> INSERT INTO status VALUES (1700000002, 3, 'door open');
+> .put site plant-a
+
+## batch 1, everything so far
+$ altsql [dev.db] [.sync 0 b1.bin]
+batch: 254 bytes, after 0 up to 7
+
+## more records, then batch 2, and a call with nothing new to send
+$ altsql [dev.db]
+> INSERT INTO temps VALUES (1700000004, 2, 22.5), (1700000005, 1, 22);
+> INSERT INTO status VALUES (1700000005, 0, 'door closed');
+> .put site plant-b
+> .put owner ops
+$ altsql [dev.db] [.sync 7 b2.bin]
+batch: 143 bytes, after 7 up to 12
+$ altsql [dev.db] [.sync 12 b3.bin]
+batch: 0 bytes, after 12 up to 12
+
+## a device with more records than one batch holds
+$ altsql [new] [big.db]
+created big.db: 256 sectors of 4096 bytes
+$ altsql [big.db] < big.sql  (CREATE TABLE and 3000 INSERTs)
+$ altsql [big.db] [.sync 0 big1.bin]
+batch: 65529 bytes, after 0 up to 2520 (more to send)
+$ altsql [big.db] [.sync 2520 big2.bin]
+batch: 12506 bytes, after 2520 up to 3001
+
+## a new file is created on first use
+$ altsql-db [gw.db] [.tables]
+
+## batch 2 before batch 1: a gap, and nothing changes
+$ altsql-db [gw.db] [.sync 7 7 b2.bin] [.state 7] [.tables]
+gap: send again from 0
+0
+
+## batch 1, then the tables the series made
+$ altsql-db [gw.db] [.sync 7 0 b1.bin] [.state 7] [.tables] [.schema]
+applied, position 7
+7
+temps (synced)
+status (synced)
+kv (synced)
+temps (device:long,seq:long,time:time,machine:int,temp:float) key (device,time,seq) synced
+status (device:long,seq:long,time:time,code:int,msg:text) key (device,time,seq) synced
+kv (device:long,key:text,value:text) key (device,key) synced
+$ altsql-db [gw.db] [SELECT * FROM temps;] [SELECT * FROM status;] [SELECT * FROM kv;]
+device|seq|time|machine|temp
+7|3|1700000001|1|21.5
+7|4|1700000002|2|22.25
+7|5|1700000003|1|21.75
+device|seq|time|code|msg
+7|6|1700000002|3|door open
+device|key|value
+7|site|plant-a
+
+## batch 2
+$ altsql-db [gw.db] [.sync 7 7 b2.bin] [.state 7]
+applied, position 12
+12
+$ altsql-db [gw.db] [SELECT * FROM temps ORDER BY time;] [SELECT * FROM status ORDER BY time;] [SELECT * FROM kv;]
+device|seq|time|machine|temp
+7|3|1700000001|1|21.5
+7|4|1700000002|2|22.25
+7|5|1700000003|1|21.75
+7|8|1700000004|2|22.5
+7|9|1700000005|1|22.0
+device|seq|time|code|msg
+7|6|1700000002|3|door open
+7|10|1700000005|0|door closed
+device|key|value
+7|owner|ops
+7|site|plant-b
+$ altsql-db [gw.db] [SELECT machine, COUNT(*), AVG(temp) FROM temps GROUP BY machine ORDER BY machine;]
+machine|COUNT(*)|AVG(temp)
+1|3|21.75
+2|2|22.375
+$ altsql-db [gw.db] [.sync 7 12 b3.bin] [.state 7]
+applied, position 12
+12
+
+## the same batches again change nothing
+$ altsql-db [gw.db] [.sync 7 0 b1.bin] [.sync 7 7 b2.bin] [.state 7]
+applied, position 12
+applied, position 12
+12
+
+## rows by key, with no SQL step
+$ altsql-db [gw.db] [.row get temps 7 1700000003 5] [.row get status 7 1700000005 10] [.row get kv 7 site] [.row get kv 7 owner]
+device|seq|time|machine|temp
+7|5|1700000003|1|21.75
+device|seq|time|code|msg
+7|10|1700000005|0|door closed
+device|key|value
+7|site|plant-b
+device|key|value
+7|owner|ops
+$ altsql-db [gw.db] [.row get temps 7 1700000003 999]
+not found
+(exit 1)
+$ altsql-db [gw.db] [.row get kv 7]
+error: kv takes 2 key values
+(exit 1)
+$ altsql-db [gw.db] [.row put kv 7 site x]
+error: a synced table takes rows only from sync
+(exit 1)
+
+## a second device sends the same batches
+$ altsql-db [gw.db] [.sync 9 0 b1.bin] [.sync 9 7 b2.bin] [.state 9] [.state 7]
+applied, position 7
+applied, position 12
+12
+12
+$ altsql-db [gw.db] [SELECT device, COUNT(*), MAX(time) FROM temps GROUP BY device ORDER BY device;]
+device|COUNT(*)|MAX(time)
+7|5|1700000005
+9|5|1700000005
+$ altsql-db [gw.db] [SELECT * FROM kv ORDER BY device, key;]
+device|key|value
+7|owner|ops
+7|site|plant-b
+9|owner|ops
+9|site|plant-b
+
+## a device with many records: two batches
+$ altsql-db [gw.db] [.sync 12 0 big1.bin] [.sync 12 2520 big2.bin] [.state 12]
+applied, position 2520
+applied, position 3001
+3001
+$ altsql-db [gw.db] [SELECT COUNT(*), MIN(time), MAX(time), SUM(n) FROM big;]
+COUNT(*)|MIN(time)|MAX(time)|SUM(n)
+3000|1700001000|1700003999|148500
+
+## sync errors
+$ altsql-db [gw.db] [.sync 7 0 nosuch.bin]
+error: cannot read nosuch.bin: No such file or directory
+(exit 1)
+$ altsql-db [gw.db] [.sync x 0 b1.bin]
+error: DEVICE and AFTER_SEQ must be whole numbers
+(exit 1)
+$ altsql-db [gw.db] [.sync 15 0 junk.bin]
+error: the batch is damaged: the records before the damage were kept
+(exit 1)
+$ altsql-db [gw.db] [.sync 15 0]
+error: unknown or incomplete command: .sync (try .help)
+(exit 1)
+
+## a table of the gateway's own
+$ altsql-db [gw.db] [CREATE TABLE notes (id INT PRIMARY KEY, body TEXT, score FLOAT);] [.schema notes]
+notes (id:int,body:text,score:float) key (id)
+$ altsql-db [gw.db] [.row put notes 1 first 1.5] [.row put notes 2 'second note' 2] [.row insert notes 3 third 3.25]
+$ altsql-db [gw.db] [SELECT * FROM notes;]
+id|body|score
+1|first|1.5
+2|second note|2.0
+3|third|3.25
+$ altsql-db [gw.db] [.row put notes 1 'first, replaced' 1.75] [.row get notes 1]
+id|body|score
+1|first, replaced|1.75
+$ altsql-db [gw.db] [.row insert notes 3 again 9]
+error: a row with that key is already there
+(exit 1)
+$ altsql-db [gw.db] [SELECT * FROM notes;]
+id|body|score
+1|first, replaced|1.75
+2|second note|2.0
+3|third|3.25
+$ altsql-db [gw.db] [.row del notes 2] [.row get notes 2]
+not found
+(exit 1)
+$ altsql-db [gw.db] [.row put notes 4 only]
+error: notes takes 3 values
+(exit 1)
+$ altsql-db [gw.db] [.row put notes four x 1]
+error: four is not a number
+(exit 1)
+$ altsql-db [gw.db] [.row get nosuch 1]
+error: no such table
+(exit 1)
+$ altsql-db [gw.db] [.drop temps]
+error: a synced table stays while devices send to it: DELETE its rows
+(exit 1)
+$ altsql-db [gw.db] [.drop notes] [.tables]
+temps (synced)
+status (synced)
+kv (synced)
+big (synced)
+$ altsql-db [gw.db] [.row get notes 1]
+error: no such table
+(exit 1)
+
+## buckets: the direct path
+$ altsql-db [gw.db] [.put cfg mode fast] [.put cfg name two words here] [.get cfg mode] [.get cfg name] [.keys cfg]
+fast
+two words here
+mode
+name
+$ altsql-db [gw.db] [.del cfg mode] [.get cfg mode]
+not found
+(exit 1)
+$ altsql-db [gw.db] [.get nobucket k]
+not found
+(exit 1)
+$ altsql-db [gw.db] [.keys nobucket]
+not found
+(exit 1)
+
+## transactions
+$ altsql-db [gw.db] [.begin] [.put cfg tmp 1] [.keys cfg] [.rollback] [.keys cfg]
+name
+tmp
+name
+$ altsql-db [gw.db] [.begin] [.put cfg kept 1] [.commit] [.keys cfg]
+kept
+name
+$ altsql-db [gw.db] [.begin] [.put cfg left-open 1]
+$ altsql-db [gw.db] [.keys cfg]
+kept
+name
+$ altsql-db [gw.db] [.rollback]
+error: no transaction to roll back
+(exit 1)
+$ altsql-db [gw.db] [.commit]
+error: no transaction to commit
+(exit 1)
+
+## standard input: SQL over several lines, an error does not stop the run, .quit does
+$ altsql-db [gw.db]
+> SELECT COUNT(*)
+>   FROM temps
+>   WHERE device = 7;
+> 
+> SELECT * FROM nope;
+> .bogus
+> .state 7
+> SELECT 1 + 1 AS two;
+> .quit
+> SELECT 'not reached';
+COUNT(*)
+5
+error: no such table: nope
+error: unknown or incomplete command: .bogus (try .help)
+12
+two
+2
+(exit 1)
+
+## arguments stop at the first error
+$ altsql-db [gw.db] [SELECT * FROM nope;] [.tables]
+error: no such table: nope
+(exit 1)
+
+## the file is sound, and .help lists the commands
+$ altsql-db [gw.db] [.check]
+ok, N entries, N pages
+$ altsql-db [gw.db] [.help]
+.help                           list the commands
+.quit                           leave
+.exit                           leave
+.version                        show the versions
+.tables                         list the tables; (synced) marks those filled by sync
+.schema [TABLE]                 columns with their types, and the primary key
+.info                           the file, the cache and the memory in figures
+.check                          check every page of the file
+.begin                          start a write transaction
+.commit                         make the transaction final
+.rollback                       undo the transaction
+.get BUCKET KEY                 read a key (the direct path, no SQL)
+.put BUCKET KEY VALUE           set a key; the bucket is created
+.del BUCKET KEY                 delete a key
+.keys BUCKET                    list the keys of a bucket
+.row get TABLE K1 [K2 ...]      read a row by its primary key, with no SQL step
+.row put TABLE V1 V2 ...        insert or replace a row, values in column order
+.row insert TABLE V1 V2 ...     insert a row; refuse a key that is already there
+.row del TABLE K1 [K2 ...]      delete a row by its primary key
+.drop TABLE                     drop a table with its rows
+.sync DEVICE AFTER_SEQ FILE     apply a sync batch file that a Core device wrote
+.state DEVICE                   the last sequence number applied for a device
+SQL: CREATE TABLE, DROP TABLE, INSERT, UPDATE, DELETE, SELECT ... WHERE / GROUP BY /
+     HAVING / ORDER BY / LIMIT; end with ';'. Words with spaces: 'like this' or "this".

@@ -102,6 +102,7 @@ static void help(void) {
            ".del KEY                delete a key\n"
            ".export [FILE]          write the database as text (default: screen)\n"
            ".import FILE            read text written by .export\n"
+           ".sync AFTER FILE        write the records after AFTER as one sync batch\n"
            ".quit                   leave\n"
            "SQL: CREATE TABLE, INSERT, SELECT ... WHERE / GROUP BY / HAVING / ORDER BY / LIMIT;\n");
 }
@@ -139,6 +140,20 @@ static int dot(char *line) {
         if (!text) { perror(a); return 0; }
         rc = altsql_import(db, text, n);
         free(text);
+    } else if (!strcmp(cmd, ".sync") && a && b) {
+        static char batch[65536];
+        uint32_t after = (uint32_t)strtoul(a, NULL, 10), last = after;
+        size_t n = 0;
+        rc = altsql_sync_read(db, after, batch, sizeof batch, &n, &last, NULL, NULL);
+        if (rc >= 0) {
+            FILE *f = fopen(b, "wb");
+            size_t w;
+            if (!f) { perror(b); return 0; }
+            w = fwrite(batch, 1, n, f);
+            if (fclose(f) != 0 || w != n) { perror(b); return 0; }
+            printf("batch: %lu bytes, after %lu up to %lu%s\n", (unsigned long)n, (unsigned long)after,
+                   (unsigned long)last, rc == ALTSQL_OK ? " (more to send)" : "");
+        }
     } else {
         fprintf(stderr, "unknown or incomplete command: %s (try .help)\n", cmd);
     }

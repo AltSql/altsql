@@ -40,7 +40,7 @@
 
 #include "altsql.h"
 
-#define ALTSQL_DB_VERSION "0.1.0-alpha"
+#define ALTSQL_DB_VERSION "0.2.0-alpha"
 
 #ifdef __cplusplus
 extern "C" {
@@ -50,7 +50,9 @@ extern "C" {
 enum {
     ALTSQL_DB_BUSY   = -21,   /* the file is locked by another handle                */
     ALTSQL_DB_FAILED = -22,   /* the transaction failed: it can only be rolled back   */
-    ALTSQL_DB_SHORT  = -23    /* buffer too small: the length needed is in *vn       */
+    ALTSQL_DB_SHORT  = -23,   /* buffer too small: the length needed is in *vn       */
+    ALTSQL_DB_GAP    = -24    /* sync: the batch starts past the gateway's position;
+                                 nothing applied, send again from *last_seq          */
 };
 
 #define ALTSQL_DB_MAXKEY   1024   /* bytes in a key, its bucket number included */
@@ -135,8 +137,13 @@ int altsql_db_value(altsql_db_cursor *c, void *buf, size_t cap, size_t *vn);
  * columns: "name:type,..." with Core's types (time, int, long, float, real, and
  * text up to 255 bytes), up to 24 columns, in any order. key: the names of the
  * primary key's columns, comma-separated. Rows hold no NULLs. row_put inserts
- * or replaces. Text values that row_get and row_read return point into the
- * engine's memory and stay valid until the next call on the handle.
+ * or replaces; row_insert inserts and refuses a key that is already there
+ * (ALTSQL_EXISTS), as SQL's INSERT does. Every row write, from these calls, from
+ * SQL and from sync, goes through one internal function, so both interfaces
+ * keep the same rules. table_drop takes a table and its rows away, as DROP
+ * TABLE does; not for synced tables. Text values that row_get and row_read
+ * return point into the engine's memory and stay valid until the next call on
+ * the handle.
  * Synced tables are filled by altsql_db_sync_apply: columns device and seq,
  * then the series' own; their key is (device, time, seq); row_put refuses
  * them, row_del takes rows away (retention). The synced table kv holds every
@@ -151,7 +158,12 @@ typedef struct altsql_db_tableinfo {
 } altsql_db_tableinfo;
 int altsql_db_table_create(altsql_db *db, const char *name, const char *columns, const char *key);
 int altsql_db_table_info(altsql_db *db, const char *table, altsql_db_tableinfo *out);
+int altsql_db_table_drop(altsql_db *db, const char *table);
+/* Calls cb for each table, with ALTSQL_DB_TABLE or ALTSQL_DB_SYNCED; a cb that returns
+ * non-zero stops the walk and its value comes back. */
+int altsql_db_tables(altsql_db *db, int (*cb)(void *ctx, const char *name, int kind), void *ctx);
 int altsql_db_row_put(altsql_db *db, const char *table, const altsql_value *cols, int ncols);
+int altsql_db_row_insert(altsql_db *db, const char *table, const altsql_value *cols, int ncols);
 int altsql_db_row_get(altsql_db *db, const char *table, const altsql_value *key, int nkey,
                       altsql_value *cols, int ncols);
 int altsql_db_row_del(altsql_db *db, const char *table, const altsql_value *key, int nkey);
@@ -166,15 +178,22 @@ int altsql_db_row_read(altsql_db_cursor *c, altsql_value *cols, int ncols);
 
 /* ---- Sync from AltSql Core devices ------------------------------------------------------
  * batch: the bytes altsql_sync_read gave the device, unchanged. device: the
- * number the application already knows the device by. Records the gateway
- * already has are skipped; the rest go in one transaction with the device's
+ * number the application already knows the device by. after_seq: the position
+ * the device read the batch from (the after_seq it gave altsql_sync_read).
+ * When after_seq is past the gateway's position for the device, records in
+ * between are missing: nothing is applied, ALTSQL_DB_GAP comes back with the
+ * gateway's position in *last_seq, and the device sends again from there. So a
+ * device may send several batches ahead over a link that loses, repeats or
+ * reorders them, and every record is still applied once, in order. Records the
+ * gateway already has are skipped; the rest go in one transaction with the device's
  * new position, which *last_seq reports once it is committed: send it back to
  * the device as its confirmed position. A damaged record ends the batch: what
  * came before it is kept and ALTSQL_CORRUPT returned. A series whose layout
  * differs from the table of that name refuses the whole batch (ALTSQL_SCHEMA,
  * the message names the series). Inside an open transaction the batch joins it,
  * and the position counts once the caller commits. */
-int altsql_db_sync_apply(altsql_db *db, int64_t device, const void *batch, size_t len, uint32_t *last_seq);
+int altsql_db_sync_apply(altsql_db *db, int64_t device, uint32_t after_seq,
+                         const void *batch, size_t len, uint32_t *last_seq);
 /* The last sequence number applied for a device (0 for a new one). */
 int altsql_db_sync_state(altsql_db *db, int64_t device, uint32_t *last_seq);
 
@@ -2484,31 +2503,68 @@ static uint32_t asd_rowid(altsql_db *db, uint8_t *p) {
     return asd_enc_int(p, (int64_t)((db->cur << 24) | (db->rowctr++ & 0xFFFFFFu)));
 }
 
-int altsql_db_row_put(altsql_db *db, const char *table, const altsql_value *cols, int ncols) {
-    struct asd_table *T;
-    altsql_value v[ALTSQL_DB_MAXCOLS], key[ALTSQL_DB_MAXCOLS];
-    uint8_t tk[ALTSQL_DB_MAXKEY + 8];
-    uint32_t tkn, vn;
+/* ---- One way to write a row -----------------------------------------------------------------
+ * Every change to a table's rows goes through these two functions, whichever interface asks for
+ * it: the row calls, SQL's INSERT, UPDATE and DELETE, DROP TABLE and sync. asd_row_check does all
+ * that can refuse a row (the values in their columns' types, the key, and for INSERT the check
+ * that no row has the key yet) and writes nothing. asd_row_write writes the row, or deletes it.
+ * So a refused row changes nothing, whichever interface sent it, and both interfaces keep the
+ * same rules. Secondary indexes, when they come, are kept in asd_row_write, once. */
+enum { ASD_OP_INSERT = 1, ASD_OP_REPLACE, ASD_OP_UPDATE, ASD_OP_DELETE, ASD_OP_SYNC };
+
+static int asd_row_check(altsql_db *db, const struct asd_table *T, int op, const altsql_value *row,
+                         altsql_value *v, uint8_t *tk, uint32_t room, uint32_t *tkn, const char *dup) {
+    altsql_value key[ALTSQL_DB_MAXCOLS];
+    uint32_t fi, ix;
     int rc, i;
+    for (i = 0; i < T->ncols; i++) if ((rc = asd_coerce(db, T->types[i], &row[i], &v[i])) != 0) return rc;
+    for (i = 0; i < T->nkey; i++) key[i] = v[T->key[i]];
+    if ((rc = asd_rowkey(db, T, key, T->nkey, tk, room, tkn)) != 0) return rc;
+    if (op == ASD_OP_INSERT && !(T->flags & ASD_F_ROWID)) {
+        rc = asd_find(db, tk, *tkn, &fi, &ix);
+        if (rc == ALTSQL_OK) { asd_unpin(db, fi); return asd_err(db, ALTSQL_EXISTS, dup ? dup : "a row with that key is already there"); }
+        if (rc != ALTSQL_NOTFOUND) return rc;
+    }
+    return ALTSQL_OK;
+}
+
+/* v: the row's values, packed into buf; or pv and pvn, the row as stored already (sync keeps a
+ * device's payload as it was sent; T is NULL there). A new row of a table without a primary key
+ * gets its hidden number here, so tk needs room for it. */
+static int asd_row_write(altsql_db *db, const struct asd_table *T, int op, uint8_t *tk, uint32_t tkn,
+                         const altsql_value *v, uint8_t *buf, const uint8_t *pv, uint32_t pvn) {
+    if (op == ASD_OP_DELETE) return asd_write(db, 0, tk, tkn, 0, 0);
+    if (T && (op == ASD_OP_INSERT || op == ASD_OP_REPLACE) && (T->flags & ASD_F_ROWID)) tkn += asd_rowid(db, tk + tkn);
+    if (v) { pvn = asd_rpack(T->types, T->ncols, v, buf); pv = buf; }
+    return asd_write(db, 1, tk, tkn, pv, pvn);
+}
+
+/* row_put and row_insert. */
+static int asd_row_call(altsql_db *db, const char *table, const altsql_value *cols, int ncols, int op) {
+    struct asd_table *T;
+    altsql_value v[ALTSQL_DB_MAXCOLS];
+    uint8_t tk[ALTSQL_DB_MAXKEY + 8];
+    uint32_t tkn;
+    int rc, own = 0;
     if (!db || !table || (!cols && ncols)) return ALTSQL_MISUSE;
     if (db->tx == 1) return asd_err(db, ALTSQL_MISUSE, "a read transaction cannot write");
     if ((rc = asd_ready(db)) != 0 || (rc = asd_table_get(db, table, strlen(table), &T)) != 0) return rc;
     if (T->kind != ASD_K_TABLE) return asd_err(db, ALTSQL_MISUSE, "a synced table takes rows only from sync");
     if (ncols != T->ncols) return asd_err(db, ALTSQL_SCHEMA, "wrong number of columns");
-    for (i = 0; i < ncols; i++) if ((rc = asd_coerce(db, T->types[i], &cols[i], &v[i])) != 0) return rc;
-    for (i = 0; i < T->nkey; i++) key[i] = v[T->key[i]];
-    if ((rc = asd_rowkey(db, T, key, T->nkey, tk, sizeof tk, &tkn)) != 0) return rc;
-    if (T->flags & ASD_F_ROWID) {                       /* no primary key: a hidden number keeps rows apart */
-        int own = 0;
-        if (!db->tx) { if ((rc = altsql_db_begin(db, 1)) != 0) return rc; own = 1; }
-        tkn += asd_rowid(db, tk + tkn);
-        vn = asd_rpack(T->types, T->ncols, v, db->rowbuf);
-        rc = asd_write(db, 1, tk, tkn, db->rowbuf, vn);
-        if (own) { if (rc) altsql_db_rollback(db); else rc = altsql_db_commit(db); }
-        return rc;
-    }
-    vn = asd_rpack(T->types, T->ncols, v, db->rowbuf);
-    return asd_write(db, 1, tk, tkn, db->rowbuf, vn);
+    if ((rc = asd_row_check(db, T, op, cols, v, tk, sizeof tk, &tkn, NULL)) != 0) return rc;
+    if (!(T->flags & ASD_F_ROWID)) return asd_row_write(db, T, op, tk, tkn, v, db->rowbuf, NULL, 0);
+    if (!db->tx) { if ((rc = altsql_db_begin(db, 1)) != 0) return rc; own = 1; }   /* the hidden number is the transaction's */
+    rc = asd_row_write(db, T, op, tk, tkn, v, db->rowbuf, NULL, 0);
+    if (own) { if (rc) altsql_db_rollback(db); else rc = altsql_db_commit(db); }
+    return rc;
+}
+
+int altsql_db_row_put(altsql_db *db, const char *table, const altsql_value *cols, int ncols) {
+    return asd_row_call(db, table, cols, ncols, ASD_OP_REPLACE);
+}
+
+int altsql_db_row_insert(altsql_db *db, const char *table, const altsql_value *cols, int ncols) {
+    return asd_row_call(db, table, cols, ncols, ASD_OP_INSERT);
 }
 
 int altsql_db_row_get(altsql_db *db, const char *table, const altsql_value *key, int nkey,
@@ -2542,7 +2598,7 @@ int altsql_db_row_del(altsql_db *db, const char *table, const altsql_value *key,
     if (T->flags & ASD_F_ROWID) return asd_err(db, ALTSQL_MISUSE, "a table without a primary key is changed with SQL");
     if (nkey != T->nkey) return asd_err(db, ALTSQL_SCHEMA, "give every key column");
     if ((rc = asd_rowkey(db, T, key, nkey, tk, sizeof tk, &tkn)) != 0) return rc;
-    return asd_write(db, 0, tk, tkn, 0, 0);
+    return asd_row_write(db, T, ASD_OP_DELETE, tk, tkn, NULL, NULL, NULL, 0);
 }
 
 static int asd_row_start(altsql_db_cursor *c, altsql_db *db, const char *table,
@@ -2600,6 +2656,75 @@ int altsql_db_row_read(altsql_db_cursor *c, altsql_value *cols, int ncols) {
     if (ncols < T->ncols) return asd_err(db, ALTSQL_MISUSE, "cols has fewer slots than the table has columns");
     if ((rc = altsql_db_value(c, db->rowbuf, ASD_ROWBUF, &vn)) != 0) return rc == ALTSQL_DB_SHORT ? ASD_CORRUPT(db, "row too large") : rc;
     return asd_rowdecode(db, T, c->key, c->klen, db->rowbuf, (uint32_t)vn, cols);
+}
+
+int altsql_db_tables(altsql_db *db, int (*cb)(void *ctx, const char *name, int kind), void *ctx) {
+    altsql_db_cursor c;
+    uint8_t v[40];
+    uint32_t n;
+    size_t vn;
+    int rc, found;
+    if (!db || !cb) return ALTSQL_MISUSE;
+    if ((rc = asd_ready(db)) != 0) return rc;
+    c.db = db; c.space = ASD_KS_CAT; c.state = 0; c.fi = ASD_NONE;
+    n = asd_ksput(c.pre, ASD_KS_CAT);
+    c.pre[n++] = 'k';                                    /* the entries by key space: kind, then name */
+    c.plen = (uint16_t)n;
+    memcpy(c.key, c.pre, n);
+    rc = asd_cland(&c, asd_cseek(&c, c.key, n, &found), 2);
+    while (rc == ALTSQL_OK) {
+        char name[32];
+        if ((rc = altsql_db_value(&c, v, sizeof v, &vn)) != 0) return rc == ALTSQL_DB_SHORT ? ASD_CORRUPT(db, "damaged catalog") : rc;
+        if (vn >= 2 && vn <= 32 && (v[0] == ASD_K_TABLE || v[0] == ASD_K_SYNCED)) {
+            memcpy(name, v + 1, vn - 1);
+            name[vn - 1] = 0;
+            if ((rc = cb(ctx, name, v[0] == ASD_K_TABLE ? ALTSQL_DB_TABLE : ALTSQL_DB_SYNCED)) != 0) return rc;
+        }
+        rc = altsql_db_next(&c);
+    }
+    return rc == ALTSQL_NOTFOUND ? ALTSQL_OK : rc;
+}
+
+/* A table's rows, each through asd_row_write, then its two catalog entries, in the open write
+ * transaction: DROP TABLE and altsql_db_table_drop both come here. */
+static int asd_table_drop_rows(altsql_db *db, const struct asd_table *T, uint64_t *count) {
+    altsql_db_cursor c;
+    uint8_t k[ALTSQL_DB_MAXKEY + 8];
+    uint32_t kn;
+    int rc;
+    *count = 0;
+    for (;;) {                                           /* the first row, again and again */
+        rc = altsql_db_row_seek(&c, db, T->name, NULL, 0);
+        if (rc == ALTSQL_NOTFOUND) break;
+        if (rc) return rc;
+        memcpy(k, c.key, c.klen);                       /* the whole tree key, key space included */
+        if ((rc = asd_row_write(db, T, ASD_OP_DELETE, k, c.klen, NULL, NULL, NULL, 0)) != 0)
+            return rc == ALTSQL_NOTFOUND ? ASD_CORRUPT(db, "a row the cursor found could not be deleted") : rc;
+        (*count)++;
+    }
+    kn = asd_catkey(k, 1, T->name, strlen(T->name), 0);
+    if ((rc = asd_write(db, 0, k, kn, 0, 0)) != 0) return rc;
+    kn = asd_catkey(k, 0, 0, 0, T->ks);
+    rc = asd_write(db, 0, k, kn, 0, 0);
+    db->ntabs = 0;
+    return rc;
+}
+
+int altsql_db_table_drop(altsql_db *db, const char *table) {
+    struct asd_table *TP, T;
+    uint64_t count, before;
+    int rc, own = 0;
+    if (!db || !table) return ALTSQL_MISUSE;
+    if ((rc = asd_ready(db)) != 0 || (rc = asd_table_get(db, table, strlen(table), &TP)) != 0) return rc;
+    if (TP->kind != ASD_K_TABLE) return asd_err(db, ALTSQL_MISUSE, "a synced table stays while devices send to it: DELETE its rows");
+    if (db->tx == 1) return asd_err(db, ALTSQL_MISUSE, "a read transaction cannot write");
+    T = *TP;
+    if (!db->tx) { if ((rc = altsql_db_begin(db, 1)) != 0) return rc; own = 1; }
+    before = db->mods;
+    rc = asd_table_drop_rows(db, &T, &count);
+    if (own) { if (rc) altsql_db_rollback(db); else rc = altsql_db_commit(db); }
+    else if (rc && db->mods != before) db->failed = 1;
+    return rc;
 }
 
 /* ---- Sync from AltSql Core devices ---------------------------------------------------------
@@ -2729,7 +2854,7 @@ static int asd_sync_rec(altsql_db *db, int64_t device, uint8_t type, uint32_t se
         kn += asd_enc_int(k + kn, device);
         kn += asd_enc_int(k + kn, (int64_t)as_get64(pl + 2));
         kn += asd_enc_int(k + kn, (int64_t)seq);
-        return asd_write(db, 1, k, kn, pl, plen);
+        return asd_row_write(db, NULL, ASD_OP_SYNC, k, kn, NULL, NULL, pl, plen);
     }
     klen = pl[0];
     if (pl[1] == 0x01) {                                 /* reserved keys */
@@ -2743,12 +2868,13 @@ static int asd_sync_rec(altsql_db *db, int64_t device, uint8_t type, uint32_t se
     kn += asd_enc_int(k + kn, device);
     kn += asd_enc_text(k + kn, (const char *)pl + 1, klen);
     if (kn > db->maxkey) return asd_err(db, ALTSQL_TOOBIG, "device key too long for this page size");
-    if (type == AS_R_PUT) return asd_write(db, 1, k, kn, pl, plen);
-    rc = asd_write(db, 0, k, kn, 0, 0);
+    if (type == AS_R_PUT) return asd_row_write(db, NULL, ASD_OP_SYNC, k, kn, NULL, NULL, pl, plen);
+    rc = asd_row_write(db, NULL, ASD_OP_DELETE, k, kn, NULL, NULL, NULL, 0);
     return rc == ALTSQL_NOTFOUND ? ALTSQL_OK : rc;
 }
 
-int altsql_db_sync_apply(altsql_db *db, int64_t device, const void *batch, size_t len, uint32_t *last_seq) {
+int altsql_db_sync_apply(altsql_db *db, int64_t device, uint32_t after_seq,
+                         const void *batch, size_t len, uint32_t *last_seq) {
     const uint8_t *p = (const uint8_t *)batch;
     uint8_t k[16], v[4];
     uint32_t kn, last, start;
@@ -2759,6 +2885,11 @@ int altsql_db_sync_apply(altsql_db *db, int64_t device, const void *batch, size_
     if ((rc = asd_ready(db)) != 0) return rc;
     if (!db->tx) { if ((rc = altsql_db_begin(db, 1)) != 0) return rc; own = 1; }
     if ((rc = altsql_db_sync_state(db, device, &last)) != 0) goto fail;
+    if (after_seq > last) {                    /* records between last and after_seq are missing */
+        if (own) altsql_db_rollback(db);       /* nothing was written */
+        if (last_seq) *last_seq = last;
+        return asd_err(db, ALTSQL_DB_GAP, "the batch starts past the gateway's position: send again from *last_seq");
+    }
     start = last;
     while (off < len) {
         const uint8_t *h = p + off;
@@ -3403,15 +3534,10 @@ static int asd_sql_insert(altsql_db *db, as_parser *P) {
         rc = ALTSQL_OK;
         /* a key already there, or twice in the statement: nothing is written */
         for (r = 0; r < nrows && !rc && !replace && !(T.flags & ASD_F_ROWID); r++) {
-            altsql_value key[ALTSQL_DB_MAXCOLS];
-            uint32_t tkn, fi, ix;
+            altsql_value cv[ALTSQL_DB_MAXCOLS];
+            uint32_t tkn;
             size_t r2;
-            for (i = 0; i < T.nkey; i++) key[i] = rows[r * T.ncols + T.key[i]];
-            if ((rc = asd_rowkey(db, &T, key, T.nkey, tk, sizeof tk, &tkn)) != 0) break;
-            rc = asd_find(db, tk, tkn, &fi, &ix);
-            if (rc == ALTSQL_OK) { asd_unpin(db, fi); rc = asd_err(db, ALTSQL_EXISTS, "a row with that key is already there"); break; }
-            if (rc != ALTSQL_NOTFOUND) break;
-            rc = ALTSQL_OK;
+            if ((rc = asd_row_check(db, &T, ASD_OP_INSERT, rows + r * T.ncols, cv, tk, sizeof tk, &tkn, NULL)) != 0) break;
             for (r2 = 0; r2 < r && !rc; r2++) {
                 int same = 1;
                 for (i = 0; i < T.nkey && same; i++)
@@ -3420,13 +3546,10 @@ static int asd_sql_insert(altsql_db *db, as_parser *P) {
             }
         }
         for (r = 0; r < nrows && !rc; r++) {
-            altsql_value *v = rows + r * T.ncols, key[ALTSQL_DB_MAXCOLS];
-            uint32_t tkn, vn;
-            for (i = 0; i < T.nkey; i++) key[i] = v[T.key[i]];
-            if ((rc = asd_rowkey(db, &T, key, T.nkey, tk, sizeof tk, &tkn)) != 0) break;
-            if (T.flags & ASD_F_ROWID) tkn += asd_rowid(db, tk + tkn);
-            vn = asd_rpack(T.types, T.ncols, v, db->rowbuf);
-            rc = asd_write(db, 1, tk, tkn, db->rowbuf, vn);
+            altsql_value cv[ALTSQL_DB_MAXCOLS];
+            uint32_t tkn;
+            if ((rc = asd_row_check(db, &T, ASD_OP_REPLACE, rows + r * T.ncols, cv, tk, sizeof tk, &tkn, NULL)) != 0) break;
+            rc = asd_row_write(db, &T, replace ? ASD_OP_REPLACE : ASD_OP_INSERT, tk, tkn, cv, db->rowbuf, NULL, 0);
         }
         if (rc && !own && db->mods != before) db->failed = 1;
         db->sqlchanged = rc ? 0 : nrows;
@@ -3470,7 +3593,7 @@ static int asd_del_act(asd_sq *s, altsql_value *row) {
     asd_chg *u = (asd_chg *)s->actx;
     (void)row;
     u->count++;
-    return asd_write(s->db, 0, s->ck, s->ckn, 0, 0);
+    return asd_row_write(s->db, &s->T, ASD_OP_DELETE, (uint8_t *)s->ck, s->ckn, NULL, NULL, NULL, 0);
 }
 
 static int asd_upd_act(asd_sq *s, altsql_value *row) {
@@ -3486,9 +3609,9 @@ static int asd_upd_act(asd_sq *s, altsql_value *row) {
         if ((rc = as_eval(&c, u->e[i], &v)) != 0) return rc;
         if ((rc = asd_coerce(s->db, s->T.types[u->col[i]], &v, &nv[u->col[i]])) != 0) return rc;
     }
-    vn = asd_rpack(s->T.types, s->T.ncols, nv, u->pack);
     u->count++;
-    if (!u->keyset) return asd_write(s->db, 1, s->ck, s->ckn, u->pack, vn);
+    if (!u->keyset) return asd_row_write(s->db, &s->T, ASD_OP_UPDATE, (uint8_t *)s->ck, s->ckn, nv, u->pack, NULL, 0);
+    vn = asd_rpack(s->T.types, s->T.ncols, nv, u->pack);
     if (u->used + 6 + s->ckn + vn > u->cap)
         return asd_err(s->db, ALTSQL_NOMEM, "an UPDATE of key columns changes more rows than SQL memory holds");
     as_put16(u->store + u->used, s->ckn);
@@ -3503,27 +3626,20 @@ static int asd_upd_act(asd_sq *s, altsql_value *row) {
 static int asd_upd_move(asd_sq *s, asd_chg *u) {
     altsql_db *db = s->db;
     size_t at;
-    int rc, i;
+    int rc;
     for (at = 0; at < u->used; ) {
         uint32_t kn = as_get16(u->store + at), vn = as_get32(u->store + at + 2);
-        if ((rc = asd_write(db, 0, u->store + at + 6, kn, 0, 0)) != 0) return rc;
+        if ((rc = asd_row_write(db, &s->T, ASD_OP_DELETE, u->store + at + 6, kn, NULL, NULL, NULL, 0)) != 0) return rc;
         at += 6 + kn + vn;
     }
     for (at = 0; at < u->used; ) {
-        uint32_t kn = as_get16(u->store + at), vn = as_get32(u->store + at + 2), tkn, fi, ix;
-        altsql_value nv[ALTSQL_DB_MAXCOLS], key[ALTSQL_DB_MAXCOLS];
+        uint32_t kn = as_get16(u->store + at), vn = as_get32(u->store + at + 2), tkn;
+        altsql_value nv[ALTSQL_DB_MAXCOLS], cv[ALTSQL_DB_MAXCOLS];
         uint8_t tk[ALTSQL_DB_MAXKEY + 8];
         const uint8_t *pv = u->store + at + 6 + kn;
         if ((rc = asd_runpack(s->T.types, s->T.ncols, pv, vn, nv)) != 0) return rc;
-        for (i = 0; i < s->T.nkey; i++) key[i] = nv[s->T.key[i]];
-        if ((rc = asd_rowkey(db, &s->T, key, s->T.nkey, tk, sizeof tk, &tkn)) != 0) return rc;
-        if (s->T.flags & ASD_F_ROWID) tkn += asd_rowid(db, tk + tkn);
-        else {
-            rc = asd_find(db, tk, tkn, &fi, &ix);
-            if (rc == ALTSQL_OK) { asd_unpin(db, fi); return asd_err(db, ALTSQL_EXISTS, "the UPDATE gives a row the key of another row"); }
-            if (rc != ALTSQL_NOTFOUND) return rc;
-        }
-        if ((rc = asd_write(db, 1, tk, tkn, pv, vn)) != 0) return rc;
+        if ((rc = asd_row_check(db, &s->T, ASD_OP_INSERT, nv, cv, tk, sizeof tk, &tkn, "the UPDATE gives a row the key of another row")) != 0) return rc;
+        if ((rc = asd_row_write(db, &s->T, ASD_OP_INSERT, tk, tkn, cv, u->pack, NULL, 0)) != 0) return rc;
         at += 6 + kn + vn;
     }
     return ALTSQL_OK;
@@ -3595,12 +3711,8 @@ static int asd_sql_change(altsql_db *db, as_parser *P, int del) {
 
 /* DROP TABLE [IF EXISTS] t: its rows, then its two catalog entries. */
 static int asd_sql_drop(altsql_db *db, as_parser *P) {
-    struct asd_table *TP;
-    asd_sq *s;
-    asd_chg u;
-    uint8_t k[48];
-    uint32_t kn;
-    uint64_t before;
+    struct asd_table *TP, T;
+    uint64_t before, count = 0;
     int rc, own = 0, ifex = 0;
     if (!as_expect_kw(P, "TABLE")) return P->rc;
     if (as_accept_kw(P, "IF")) { if (!as_expect_kw(P, "EXISTS")) return P->rc; ifex = 1; }
@@ -3618,18 +3730,11 @@ static int asd_sql_drop(altsql_db *db, as_parser *P) {
     if (TP->kind != ASD_K_TABLE) return as_err(P->db, ALTSQL_MISUSE, "a synced table stays while devices send to it: DELETE its rows");
     if (db->sqldry) return ALTSQL_OK;
     if (db->tx == 1) return asd_err(db, ALTSQL_MISUSE, "a read transaction cannot write");
-    if (!(s = asd_sq_new(db, P, TP))) return ALTSQL_NOMEM;
-    memset(&u, 0, sizeof u);
+    T = *TP;
     if (!db->tx) { if ((rc = altsql_db_begin(db, 1)) != 0) return rc; own = 1; }
     before = db->mods;
-    s->plan = ASD_P_FULL;
-    s->act = asd_del_act;
-    s->actx = &u;
-    rc = asd_sq_scan(s);
-    if (!rc) { kn = asd_catkey(k, 1, s->T.name, strlen(s->T.name), 0); rc = asd_write(db, 0, k, kn, 0, 0); }
-    if (!rc) { kn = asd_catkey(k, 0, 0, 0, s->T.ks); rc = asd_write(db, 0, k, kn, 0, 0); }
-    db->ntabs = 0;
-    db->sqlchanged = rc ? 0 : u.count;
+    rc = asd_table_drop_rows(db, &T, &count);
+    db->sqlchanged = rc ? 0 : count;
     if (own) { if (rc) altsql_db_rollback(db); else rc = altsql_db_commit(db); }
     else if (rc && db->mods != before) db->failed = 1;
     return rc;

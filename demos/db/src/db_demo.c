@@ -129,7 +129,7 @@ static int tick(void) {
         rc = altsql_sync_read(d->db, d->conf, BUF, BATCH, &n, &last, NULL, NULL);
         if (rc < 0) return rc;
         if (!n) continue;
-        rc = altsql_db_sync_apply(G, d->id, BUF, n, &d->conf);
+        rc = altsql_db_sync_apply(G, d->id, d->conf, BUF, n, &d->conf);
         if (rc) return rc;
         batches++;
     }
@@ -368,7 +368,7 @@ API(demo_cut) const char *demo_cut(int mode) {
             size_t n;
             uint32_t last;
             rc = altsql_sync_read(D[i].db, D[i].conf, BUF, BATCH, &n, &last, NULL, NULL);
-            if (n && altsql_db_sync_apply(G, D[i].id, BUF, n, &D[i].conf)) break;
+            if (n && altsql_db_sync_apply(G, D[i].id, D[i].conf, BUF, n, &D[i].conf)) break;
             if (n) batches++;
         } while (rc == ALTSQL_OK);
     }

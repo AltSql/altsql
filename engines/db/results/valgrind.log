@@ -1,42 +1,42 @@
-for t in test_db test_rows test_sync test_sql; do \
+for t in test_db test_rows test_sync test_sql test_same; do \
   cc -std=c99 -pedantic -Wall -Wextra -Wshadow -D_POSIX_C_SOURCE=200809L -O1 -g -I../../core/dist -I. -Itests -o build/$t.vg tests/$t.c -lm && \
   valgrind --error-exitcode=9 --leak-check=full ./build/$t.vg quick || exit 1; \
 done
-In file included from tests/dbtest.h:14,
-                 from tests/test_db.c:7:
+In file included from tests/dbtest.h:18,
+                 from tests/test_db.c:11:
 In function 'asd_sync_rec',
-    inlined from 'altsql_db_sync_apply' at ./altsql_db.h:2772:23:
-./altsql_db.h:2742:10: warning: 'ks' may be used uninitialized [-Wmaybe-uninitialized]
- 2742 |     kn = asd_ksput(k, ks);
+    inlined from 'altsql_db_sync_apply' at ./altsql_db.h:2903:23:
+./altsql_db.h:2867:10: warning: 'ks' may be used uninitialized [-Wmaybe-uninitialized]
+ 2867 |     kn = asd_ksput(k, ks);
       |          ^~~~~~~~~~~~~~~~
 ./altsql_db.h: In function 'altsql_db_sync_apply':
-./altsql_db.h:2721:18: note: 'ks' was declared here
- 2721 |     uint32_t kn, ks, klen;
+./altsql_db.h:2846:18: note: 'ks' was declared here
+ 2846 |     uint32_t kn, ks, klen;
       |                  ^~
-==4802== Memcheck, a memory error detector
-==4802== Copyright (C) 2002-2022, and GNU GPL'd, by Julian Seward et al.
-==4802== Using Valgrind-3.22.0 and LibVEX; rerun with -h for copyright info
-==4802== Command: ./build/test_db.vg quick
-==4802== 
-AltSql DB 0.1.0-alpha: unit and model tests
+==7713== Memcheck, a memory error detector
+==7713== Copyright (C) 2002-2022, and GNU GPL'd, by Julian Seward et al.
+==7713== Using Valgrind-3.22.0 and LibVEX; rerun with -h for copyright info
+==7713== Command: ./build/test_db.vg quick
+==7713== 
+AltSql DB 0.2.0-alpha: unit and model tests
   basics: ok
-==4803== 
-==4803== HEAP SUMMARY:
-==4803==     in use at exit: 5,242,880 bytes in 2 blocks
-==4803==   total heap usage: 7 allocs, 5 frees, 56,627,200 bytes allocated
-==4803== 
-==4803== LEAK SUMMARY:
-==4803==    definitely lost: 0 bytes in 0 blocks
-==4803==    indirectly lost: 0 bytes in 0 blocks
-==4803==      possibly lost: 0 bytes in 0 blocks
-==4803==    still reachable: 5,242,880 bytes in 2 blocks
-==4803==         suppressed: 0 bytes in 0 blocks
-==4803== Reachable blocks (those to which a pointer was found) are not shown.
-==4803== To see them, rerun with: --leak-check=full --show-leak-kinds=all
-==4803== 
-==4803== For lists of detected and suppressed errors, rerun with: -s
-==4803== ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)
-AltSql DB 0.1.0-alpha: unit and model tests
+==7716== 
+==7716== HEAP SUMMARY:
+==7716==     in use at exit: 5,242,880 bytes in 2 blocks
+==7716==   total heap usage: 7 allocs, 5 frees, 56,627,200 bytes allocated
+==7716== 
+==7716== LEAK SUMMARY:
+==7716==    definitely lost: 0 bytes in 0 blocks
+==7716==    indirectly lost: 0 bytes in 0 blocks
+==7716==      possibly lost: 0 bytes in 0 blocks
+==7716==    still reachable: 5,242,880 bytes in 2 blocks
+==7716==         suppressed: 0 bytes in 0 blocks
+==7716== Reachable blocks (those to which a pointer was found) are not shown.
+==7716== To see them, rerun with: --leak-check=full --show-leak-kinds=all
+==7716== 
+==7716== For lists of detected and suppressed errors, rerun with: -s
+==7716== ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)
+AltSql DB 0.2.0-alpha: unit and model tests
   basics: ok
   POSIX file and lock: ok
   append: 100,000 keys in order -> 723 pages, depth 3
@@ -44,112 +44,114 @@ AltSql DB 0.1.0-alpha: unit and model tests
   damaged header: each of 44 bytes changed in turn, the file opens at the commit before: ok
   model tests: 36 runs, 12 seeds, page sizes 512, 1024 and 4096: ok
 all passed
-==4802== 
-==4802== HEAP SUMMARY:
-==4802==     in use at exit: 4,194,304 bytes in 1 blocks
-==4802==   total heap usage: 623 allocs, 622 frees, 7,756,958,880 bytes allocated
-==4802== 
-==4802== LEAK SUMMARY:
-==4802==    definitely lost: 0 bytes in 0 blocks
-==4802==    indirectly lost: 0 bytes in 0 blocks
-==4802==      possibly lost: 0 bytes in 0 blocks
-==4802==    still reachable: 4,194,304 bytes in 1 blocks
-==4802==         suppressed: 0 bytes in 0 blocks
-==4802== Reachable blocks (those to which a pointer was found) are not shown.
-==4802== To see them, rerun with: --leak-check=full --show-leak-kinds=all
-==4802== 
-==4802== For lists of detected and suppressed errors, rerun with: -s
-==4802== ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)
-In file included from tests/dbtest.h:14,
-                 from tests/test_rows.c:7:
+==7713== 
+==7713== HEAP SUMMARY:
+==7713==     in use at exit: 4,194,304 bytes in 1 blocks
+==7713==   total heap usage: 623 allocs, 622 frees, 7,756,958,880 bytes allocated
+==7713== 
+==7713== LEAK SUMMARY:
+==7713==    definitely lost: 0 bytes in 0 blocks
+==7713==    indirectly lost: 0 bytes in 0 blocks
+==7713==      possibly lost: 0 bytes in 0 blocks
+==7713==    still reachable: 4,194,304 bytes in 1 blocks
+==7713==         suppressed: 0 bytes in 0 blocks
+==7713== Reachable blocks (those to which a pointer was found) are not shown.
+==7713== To see them, rerun with: --leak-check=full --show-leak-kinds=all
+==7713== 
+==7713== For lists of detected and suppressed errors, rerun with: -s
+==7713== ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)
+In file included from tests/dbtest.h:18,
+                 from tests/test_rows.c:11:
 In function 'asd_sync_rec',
-    inlined from 'altsql_db_sync_apply' at ./altsql_db.h:2772:23:
-./altsql_db.h:2742:10: warning: 'ks' may be used uninitialized [-Wmaybe-uninitialized]
- 2742 |     kn = asd_ksput(k, ks);
+    inlined from 'altsql_db_sync_apply' at ./altsql_db.h:2903:23:
+./altsql_db.h:2867:10: warning: 'ks' may be used uninitialized [-Wmaybe-uninitialized]
+ 2867 |     kn = asd_ksput(k, ks);
       |          ^~~~~~~~~~~~~~~~
 ./altsql_db.h: In function 'altsql_db_sync_apply':
-./altsql_db.h:2721:18: note: 'ks' was declared here
- 2721 |     uint32_t kn, ks, klen;
+./altsql_db.h:2846:18: note: 'ks' was declared here
+ 2846 |     uint32_t kn, ks, klen;
       |                  ^~
-==4814== Memcheck, a memory error detector
-==4814== Copyright (C) 2002-2022, and GNU GPL'd, by Julian Seward et al.
-==4814== Using Valgrind-3.22.0 and LibVEX; rerun with -h for copyright info
-==4814== Command: ./build/test_rows.vg quick
-==4814== 
-AltSql DB 0.1.0-alpha: tables
+==8466== Memcheck, a memory error detector
+==8466== Copyright (C) 2002-2022, and GNU GPL'd, by Julian Seward et al.
+==8466== Using Valgrind-3.22.0 and LibVEX; rerun with -h for copyright info
+==8466== Command: ./build/test_rows.vg quick
+==8466== 
+AltSql DB 0.2.0-alpha: tables
   key encodings sort as their values: ok
   real, float and text keys in order; caller errors: ok
   model runs: 4 seeds, 512 and 4096-byte pages: ok
 all passed
-==4814== 
-==4814== HEAP SUMMARY:
-==4814==     in use at exit: 5,634,304 bytes in 2 blocks
-==4814==   total heap usage: 550 allocs, 548 frees, 1,701,602,432 bytes allocated
-==4814== 
-==4814== LEAK SUMMARY:
-==4814==    definitely lost: 0 bytes in 0 blocks
-==4814==    indirectly lost: 0 bytes in 0 blocks
-==4814==      possibly lost: 0 bytes in 0 blocks
-==4814==    still reachable: 5,634,304 bytes in 2 blocks
-==4814==         suppressed: 0 bytes in 0 blocks
-==4814== Reachable blocks (those to which a pointer was found) are not shown.
-==4814== To see them, rerun with: --leak-check=full --show-leak-kinds=all
-==4814== 
-==4814== For lists of detected and suppressed errors, rerun with: -s
-==4814== ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)
-In file included from tests/dbtest.h:14,
-                 from tests/test_sync.c:11:
+==8466== 
+==8466== HEAP SUMMARY:
+==8466==     in use at exit: 5,634,304 bytes in 2 blocks
+==8466==   total heap usage: 550 allocs, 548 frees, 1,701,602,432 bytes allocated
+==8466== 
+==8466== LEAK SUMMARY:
+==8466==    definitely lost: 0 bytes in 0 blocks
+==8466==    indirectly lost: 0 bytes in 0 blocks
+==8466==      possibly lost: 0 bytes in 0 blocks
+==8466==    still reachable: 5,634,304 bytes in 2 blocks
+==8466==         suppressed: 0 bytes in 0 blocks
+==8466== Reachable blocks (those to which a pointer was found) are not shown.
+==8466== To see them, rerun with: --leak-check=full --show-leak-kinds=all
+==8466== 
+==8466== For lists of detected and suppressed errors, rerun with: -s
+==8466== ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)
+In file included from tests/dbtest.h:18,
+                 from tests/test_sync.c:15:
 In function 'asd_sync_rec',
-    inlined from 'altsql_db_sync_apply' at ./altsql_db.h:2772:23:
-./altsql_db.h:2742:10: warning: 'ks' may be used uninitialized [-Wmaybe-uninitialized]
- 2742 |     kn = asd_ksput(k, ks);
+    inlined from 'altsql_db_sync_apply' at ./altsql_db.h:2903:23:
+./altsql_db.h:2867:10: warning: 'ks' may be used uninitialized [-Wmaybe-uninitialized]
+ 2867 |     kn = asd_ksput(k, ks);
       |          ^~~~~~~~~~~~~~~~
 ./altsql_db.h: In function 'altsql_db_sync_apply':
-./altsql_db.h:2721:18: note: 'ks' was declared here
- 2721 |     uint32_t kn, ks, klen;
+./altsql_db.h:2846:18: note: 'ks' was declared here
+ 2846 |     uint32_t kn, ks, klen;
       |                  ^~
-==4821== Memcheck, a memory error detector
-==4821== Copyright (C) 2002-2022, and GNU GPL'd, by Julian Seward et al.
-==4821== Using Valgrind-3.22.0 and LibVEX; rerun with -h for copyright info
-==4821== Command: ./build/test_sync.vg quick
-==4821== 
-AltSql DB 0.1.0-alpha: sync from AltSql Core devices
+==8477== Memcheck, a memory error detector
+==8477== Copyright (C) 2002-2022, and GNU GPL'd, by Julian Seward et al.
+==8477== Using Valgrind-3.22.0 and LibVEX; rerun with -h for copyright info
+==8477== Command: ./build/test_sync.vg quick
+==8477== 
+AltSql DB 0.2.0-alpha: sync from AltSql Core devices
   six devices, 40 rounds, batches of 64 to 3,064 bytes: 6116 rows stored as sent; resends, stale, cut and damaged batches: ok
   power cuts on the gateway during sync: 89 cuts, 623 writes in the session; every device complete after resending: ok
+  sync in order: 8 runs, 4 devices each sending up to 4 batches ahead: 8888 batches sent, 8908 delivered, 507 lost on the link, 527 delivered twice, 9312 out of order, 3529 refused as gaps; every record applied exactly once
+  the same 8 runs with every batch claiming position 0, as 0.1 assumed: 16109 records lost
 all passed
-==4821== 
-==4821== HEAP SUMMARY:
-==4821==     in use at exit: 4,194,304 bytes in 1 blocks
-==4821==   total heap usage: 30 allocs, 29 frees, 262,115,328 bytes allocated
-==4821== 
-==4821== LEAK SUMMARY:
-==4821==    definitely lost: 0 bytes in 0 blocks
-==4821==    indirectly lost: 0 bytes in 0 blocks
-==4821==      possibly lost: 0 bytes in 0 blocks
-==4821==    still reachable: 4,194,304 bytes in 1 blocks
-==4821==         suppressed: 0 bytes in 0 blocks
-==4821== Reachable blocks (those to which a pointer was found) are not shown.
-==4821== To see them, rerun with: --leak-check=full --show-leak-kinds=all
-==4821== 
-==4821== For lists of detected and suppressed errors, rerun with: -s
-==4821== ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)
-In file included from tests/dbtest.h:14,
-                 from tests/test_sql.c:9:
+==8477== 
+==8477== HEAP SUMMARY:
+==8477==     in use at exit: 4,194,304 bytes in 1 blocks
+==8477==   total heap usage: 206 allocs, 205 frees, 3,503,263,744 bytes allocated
+==8477== 
+==8477== LEAK SUMMARY:
+==8477==    definitely lost: 0 bytes in 0 blocks
+==8477==    indirectly lost: 0 bytes in 0 blocks
+==8477==      possibly lost: 0 bytes in 0 blocks
+==8477==    still reachable: 4,194,304 bytes in 1 blocks
+==8477==         suppressed: 0 bytes in 0 blocks
+==8477== Reachable blocks (those to which a pointer was found) are not shown.
+==8477== To see them, rerun with: --leak-check=full --show-leak-kinds=all
+==8477== 
+==8477== For lists of detected and suppressed errors, rerun with: -s
+==8477== ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)
+In file included from tests/dbtest.h:18,
+                 from tests/test_sql.c:13:
 In function 'asd_sync_rec',
-    inlined from 'altsql_db_sync_apply' at ./altsql_db.h:2772:23:
-./altsql_db.h:2742:10: warning: 'ks' may be used uninitialized [-Wmaybe-uninitialized]
- 2742 |     kn = asd_ksput(k, ks);
+    inlined from 'altsql_db_sync_apply' at ./altsql_db.h:2903:23:
+./altsql_db.h:2867:10: warning: 'ks' may be used uninitialized [-Wmaybe-uninitialized]
+ 2867 |     kn = asd_ksput(k, ks);
       |          ^~~~~~~~~~~~~~~~
 ./altsql_db.h: In function 'altsql_db_sync_apply':
-./altsql_db.h:2721:18: note: 'ks' was declared here
- 2721 |     uint32_t kn, ks, klen;
+./altsql_db.h:2846:18: note: 'ks' was declared here
+ 2846 |     uint32_t kn, ks, klen;
       |                  ^~
-==4827== Memcheck, a memory error detector
-==4827== Copyright (C) 2002-2022, and GNU GPL'd, by Julian Seward et al.
-==4827== Using Valgrind-3.22.0 and LibVEX; rerun with -h for copyright info
-==4827== Command: ./build/test_sql.vg quick
-==4827== 
-AltSql DB 0.1.0-alpha: SQL on the tree
+==8490== Memcheck, a memory error detector
+==8490== Copyright (C) 2002-2022, and GNU GPL'd, by Julian Seward et al.
+==8490== Using Valgrind-3.22.0 and LibVEX; rerun with -h for copyright info
+==8490== Command: ./build/test_sql.vg quick
+==8490== 
+AltSql DB 0.2.0-alpha: SQL on the tree
   Core's SQL and AltSql DB's: 30 fixed statements and 100 random ones, the same answers: ok
   plans: point lookup reads 1 row, range scans only their range, 150 random narrowings return a full scan's rows: ok
   INSERT: all or nothing, duplicate keys refused, OR REPLACE, named columns; errors keep a transaction usable: ok
@@ -158,20 +160,60 @@ AltSql DB 0.1.0-alpha: SQL on the tree
   UPDATE (in place and of keys), DELETE (tables and synced retention), DROP TABLE: rules, rollback, no pages lost: ok
   prepared statements: parameters, batches by key and by skipping, INSERT, UPDATE and DELETE, two at once, rules: ok
 all passed
-==4827== 
-==4827== HEAP SUMMARY:
-==4827==     in use at exit: 415,236,096 bytes in 5 blocks
-==4827==   total heap usage: 1,088 allocs, 1,083 frees, 463,286,817 bytes allocated
-==4827== 
-==4827== LEAK SUMMARY:
-==4827==    definitely lost: 0 bytes in 0 blocks
-==4827==    indirectly lost: 0 bytes in 0 blocks
-==4827==      possibly lost: 0 bytes in 0 blocks
-==4827==    still reachable: 415,236,096 bytes in 5 blocks
-==4827==         suppressed: 0 bytes in 0 blocks
-==4827== Reachable blocks (those to which a pointer was found) are not shown.
-==4827== To see them, rerun with: --leak-check=full --show-leak-kinds=all
-==4827== 
-==4827== For lists of detected and suppressed errors, rerun with: -s
-==4827== ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)
+==8490== 
+==8490== HEAP SUMMARY:
+==8490==     in use at exit: 415,236,096 bytes in 5 blocks
+==8490==   total heap usage: 1,088 allocs, 1,083 frees, 463,286,817 bytes allocated
+==8490== 
+==8490== LEAK SUMMARY:
+==8490==    definitely lost: 0 bytes in 0 blocks
+==8490==    indirectly lost: 0 bytes in 0 blocks
+==8490==      possibly lost: 0 bytes in 0 blocks
+==8490==    still reachable: 415,236,096 bytes in 5 blocks
+==8490==         suppressed: 0 bytes in 0 blocks
+==8490== Reachable blocks (those to which a pointer was found) are not shown.
+==8490== To see them, rerun with: --leak-check=full --show-leak-kinds=all
+==8490== 
+==8490== For lists of detected and suppressed errors, rerun with: -s
+==8490== ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)
+In file included from tests/dbtest.h:18,
+                 from tests/test_same.c:15:
+In function 'asd_sync_rec',
+    inlined from 'altsql_db_sync_apply' at ./altsql_db.h:2903:23:
+./altsql_db.h:2867:10: warning: 'ks' may be used uninitialized [-Wmaybe-uninitialized]
+ 2867 |     kn = asd_ksput(k, ks);
+      |          ^~~~~~~~~~~~~~~~
+./altsql_db.h: In function 'altsql_db_sync_apply':
+./altsql_db.h:2846:18: note: 'ks' was declared here
+ 2846 |     uint32_t kn, ks, klen;
+      |                  ^~
+==8521== Memcheck, a memory error detector
+==8521== Copyright (C) 2002-2022, and GNU GPL'd, by Julian Seward et al.
+==8521== Using Valgrind-3.22.0 and LibVEX; rerun with -h for copyright info
+==8521== Command: ./build/test_same.vg quick
+==8521== 
+AltSql DB 0.2.0-alpha: the interface test, SQL text against direct calls
+  seed 1: 2000 steps, t1 178 rows, 118784-byte files identical, 835 commits
+  seed 2: 2000 steps, t1 152 rows, 143360-byte files identical, 821 commits
+  seed 3: 2000 steps, t1 169 rows, 131072-byte files identical, 860 commits
+  seed 4: 2000 steps, t1 158 rows, 135168-byte files identical, 790 commits
+  8000 steps: 5029 writes, 1152 reads, 1816 refusals, 156 table drops and creations, 594 transactions, 241 whole-table comparisons
+  same answers, same refusals code for code, same rows, identical files
+test_same: all checks passed
+==8521== 
+==8521== HEAP SUMMARY:
+==8521==     in use at exit: 4,194,304 bytes in 1 blocks
+==8521==   total heap usage: 26 allocs, 25 frees, 1,614,811,136 bytes allocated
+==8521== 
+==8521== LEAK SUMMARY:
+==8521==    definitely lost: 0 bytes in 0 blocks
+==8521==    indirectly lost: 0 bytes in 0 blocks
+==8521==      possibly lost: 0 bytes in 0 blocks
+==8521==    still reachable: 4,194,304 bytes in 1 blocks
+==8521==         suppressed: 0 bytes in 0 blocks
+==8521== Reachable blocks (those to which a pointer was found) are not shown.
+==8521== To see them, rerun with: --leak-check=full --show-leak-kinds=all
+==8521== 
+==8521== For lists of detected and suppressed errors, rerun with: -s
+==8521== ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)
 exit 0

@@ -1,4 +1,4 @@
-AltSql DB 0.1.0-alpha: fault injection
+AltSql DB 0.2.0-alpha: fault injection
   seed 11, 512-byte pages: 338 runs, each with one failing call, all clean
   seed 12, 512-byte pages: 361 runs, each with one failing call, all clean
   seed 13, 4096-byte pages: 97 runs, each with one failing call, all clean

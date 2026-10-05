@@ -208,12 +208,12 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
         break; }
     default: {
         if (!(db = fresh(&f, &r))) abort();
-        if (altsql_db_sync_apply(db, 7, BATCH0, BATCH0N, &last) != ALTSQL_OK) abort();
+        if (altsql_db_sync_apply(db, 7, 0, BATCH0, BATCH0N, &last) != ALTSQL_OK) abort();
         n = size - 1 < sizeof batch ? size - 1 : sizeof batch;
         memcpy(batch, data + 1, n);
         if (data[0] % 5 == 4) fix_crcs(batch, n);
-        altsql_db_sync_apply(db, 7, batch, n, &last);
-        altsql_db_sync_apply(db, 8, batch, n, &last);
+        altsql_db_sync_apply(db, 7, 0, batch, n, &last);
+        altsql_db_sync_apply(db, 8, 0, batch, n, &last);
         must_check(db);
         altsql_db_exec(db, "SELECT COUNT(*), MAX(seq) FROM temps; SELECT * FROM kv", sink, NULL);
         altsql_db_close(db);
