@@ -30,8 +30,8 @@ License 2.0: the engine, AltSql Core, and the database, AltSql DB.
   `.sync AFTER FILE`, which writes a sync batch to a file.
 - **The browser demo** in `demos/db/` is rebuilt on AltSql DB 0.2
   (`app/engine-db.v2.js`).
-- **Binaries:** both shells for Linux x86-64, statically linked, attached to
-  the GitHub release.
+- **Binaries:** both shells for Linux x86-64, statically linked, in
+  `releases/v0.2.0-alpha/` with the release notes and checksums.
 - Statement savepoints and secondary indexes move to 0.3.
 
 ## 0.1.0-alpha (October 2026)

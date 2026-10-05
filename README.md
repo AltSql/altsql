@@ -23,8 +23,8 @@ or a gateway yet. File formats may still change. Not for production.
 
 Two command-line shells come with them: `altsql` for a device's database
 (`core/tools/cli.c`) and `altsql-db` for a gateway's (`engines/db/tools/shell.c`).
-Ready-made binaries for Linux x86-64 are on the
-[releases page](https://github.com/AltSql/altsql/releases).
+Ready-made binaries for Linux x86-64 are in
+[`releases/v0.2.0-alpha/`](releases/v0.2.0-alpha/), with the release notes.
 
 ## Build and test
 
