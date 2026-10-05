@@ -1,0 +1,8 @@
+AltSql DB 0.2.0-alpha: SQL statements inside transactions and in transactions of their own (a file in RAM)
+  INSERT, one row a statement, 1,000 statements a transaction:    902735 statements/s
+  UPDATE by key, 1,000 statements a transaction:                  262732 statements/s
+  UPDATE by key, each statement its own transaction (no savepoint): 123033 statements/s
+AltSql DB 0.3.0-alpha: SQL statements inside transactions and in transactions of their own (a file in RAM)
+  INSERT, one row a statement, 1,000 statements a transaction:    933339 statements/s
+  UPDATE by key, 1,000 statements a transaction:                  258924 statements/s
+  UPDATE by key, each statement its own transaction (no savepoint): 136580 statements/s

@@ -1,25 +1,25 @@
 AltSql DB Gate 1: 1000000 entries, 12-byte keys (device, time), 14-byte values; three runs, medians
 
 measure                 altsql    altsql-int        sqlite   sqlite-mmap   sqlite-blob          lmdb
-reads_cached         1,842,507     2,020,859       363,763       368,185     1,663,858     1,565,997
-reads_4x               740,230       754,371       329,936           n/a       925,015           n/a
-scan                14,589,222    13,946,247    16,428,153    16,624,138    23,249,417    71,103,876
-writes_tx1               3,300         3,414         5,074         5,627         5,747         4,065
-writes_tx100            38,802       326,073        23,388        23,046       439,006        53,963
-writes_tx10000         426,521     3,121,546       126,865       128,406     2,348,749       477,916
-load                   181,503       191,729       114,456       111,133       145,263       185,931
+reads_cached         1,961,992     2,092,054       389,180       443,471     1,721,096     1,686,595
+reads_4x               815,850       899,018       351,468           n/a       956,783           n/a
+scan                13,744,956    14,818,546    17,261,626    18,497,259    25,202,503    70,152,744
+writes_tx1               3,378         4,105         5,295         4,951         6,402         4,509
+writes_tx100            33,351       332,892        27,388        25,417       509,577        58,884
+writes_tx10000         401,633     3,459,917       155,962       151,403     2,586,264       505,309
+load                   208,340       223,407       127,278       132,283       175,179       187,066
 bytes_on_disk       99,561,472    89,202,688    35,794,944    35,794,944    24,408,064   110,559,232
 bytes_per_entry            100            89            36            36            24           111
-peak_memory            109,132        98,840        48,540        62,316        36,404       147,172
+peak_memory            109,496        99,448        48,500        62,376        36,472       147,092
 
 Pass marks
-  reads in the cache vs SQLite's best through SQL (WITHOUT ROWID, mmap off or on): 5.00x  (need 2.0)  PASS
-  reads in the cache, whole-number keys, vs SQLite's blob path (sqlite3_blob_reopen): 1.21x  (need 2.0)  FAIL
-  ordered scan vs SQLite: 0.88x  (need 0.8)  PASS
-  10,000-write transactions vs SQLite: 3.32x  (need 0.8)  PASS
-  three runs within 5%: reads_cached 2.8%, scan 3.6%, writes_tx10000 7.7%, reads_4x 4.8%  FAIL
+  reads in the cache vs SQLite's best through SQL (WITHOUT ROWID, mmap off or on): 4.42x  (need 2.0)  PASS
+  reads in the cache, whole-number keys, vs SQLite's blob path (sqlite3_blob_reopen): 1.22x  (need 2.0)  FAIL
+  ordered scan vs SQLite: 0.74x  (need 0.8)  FAIL
+  10,000-write transactions vs SQLite: 2.58x  (need 0.8)  PASS
+  three runs within 5%: reads_cached 3.4%, scan 5.9%, writes_tx10000 13.7%, reads_4x 9.5%  FAIL
 
-For reference: single-write transactions, AltSql DB 3300/s vs SQLite 5074/s (two syncs per commit vs one);
-LMDB reads in the cache 1565997/s.
+For reference: single-write transactions, AltSql DB 3378/s vs SQLite 5295/s (two syncs per commit vs one);
+LMDB reads in the cache 1686595/s.
 
 exit 0

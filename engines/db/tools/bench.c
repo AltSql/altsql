@@ -64,7 +64,7 @@ static void q_core(altsql *db, const char *sql) {
         t = now() - t;
         if (t < best) best = t;
     }
-    printf("core     query %7.1f ms  %ld rows  %s\n", best * 1e3, nout, sql);
+    printf("core     query %8.2f ms  %ld rows  %s\n", best * 1e3, nout, sql);
 }
 static double q_db(altsql_db *db, const char *label, const char *sql) {
     double best = 1e9;
@@ -76,7 +76,7 @@ static double q_db(altsql_db *db, const char *label, const char *sql) {
         t = now() - t;
         if (t < best) best = t;
     }
-    printf("%-8s query %7.1f ms  %ld rows  %s\n", label, best * 1e3, nout, sql);
+    printf("%-8s query %8.2f ms  %ld rows  %s\n", label, best * 1e3, nout, sql);
     return best;
 }
 
@@ -95,7 +95,7 @@ static void q_sq(sqlite3 *sq, const char *sql, long long *first) {
         t0 = now() - t0;
         if (t0 < best) best = t0;
     }
-    printf("sqlite   query %7.1f ms  %ld rows  %s\n", best * 1e3, nout, sql);
+    printf("sqlite   query %8.2f ms  %ld rows  %s\n", best * 1e3, nout, sql);
 }
 #endif
 

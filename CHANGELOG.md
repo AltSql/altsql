@@ -1,5 +1,16 @@
 # Changelog
 
+## After 0.3.0-alpha (5 October 2026)
+
+- **The speed figures run again**, three times each on one CPU of the same
+  shared machine: Gate 1 (`tools/gate1_report.py`) on 0.3, and Gate 2
+  through the new `tools/gate2_report.py` (the one-million-row benchmark and
+  the savepoint benchmark). Gate 1's ordered scan came to 0.74x SQLite
+  against a mark of 0.8x; `tools/gate1_versions.py` and
+  `tools/scan_count.c` compare it with 0.1 and 0.2: the same instructions,
+  about 9% slower on this machine. `engines/db/README.md` has the figures.
+  The engine's code is unchanged.
+
 ## 0.3.0-alpha (5 October 2026)
 
 - **AltSql DB 0.3.0-alpha.**

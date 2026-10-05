@@ -1,34 +1,34 @@
-Breakpoint 1 at 0x22570: file ../../core/dist/altsql.h, line 3055.
-Breakpoint 2 at 0x178d0: file ../../core/dist/altsql.h, line 1761.
-Breakpoint 3 at 0x1bee0: file ../../core/dist/altsql.h, line 2060.
-Breakpoint 4 at 0x226e9: file ../../core/dist/altsql.h, line 2726.
-Breakpoint 5 at 0x225d3: file ../../core/dist/altsql.h, line 496.
-Breakpoint 6 at 0x211b0: file ../../core/dist/altsql.h, line 2963.
-Breakpoint 7 at 0x22c27: file ../../core/dist/altsql.h, line 2918.
+Breakpoint 1 at 0x22dd0: file ../../core/dist/altsql.h, line 3075.
+Breakpoint 2 at 0x18000: file ../../core/dist/altsql.h, line 1781.
+Breakpoint 3 at 0x1c910: file ../../core/dist/altsql.h, line 2080.
+Breakpoint 4 at 0x22f49: file ../../core/dist/altsql.h, line 2746.
+Breakpoint 5 at 0x22e33: file ../../core/dist/altsql.h, line 504.
+Breakpoint 6 at 0x21a10: file ../../core/dist/altsql.h, line 2983.
+Breakpoint 7 at 0x23487: file ../../core/dist/altsql.h, line 2938.
 [Thread debugging using libthread_db enabled]
 Using host libthread_db library "/lib/x86_64-linux-gnu/libthread_db.so.1".
-altsql load 1204692 entries/s
-altsql reads_cached 3661753 reads/s
+altsql load 1452393 entries/s
+altsql reads_cached 3957722 reads/s
 altsql read_checksum 8057277 -
-altsql scan 16151071 entries/s
+altsql scan 14587037 entries/s
 altsql scan_checksum 8062842 -
 altsql bytes_on_disk 5492736 bytes
 altsql bytes_per_entry 109.9 bytes
-altsql reads_4x 2418509 reads/s
-altsql writes_tx1 2675 writes/s
-altsql commits_tx1 2675 commits/s
-altsql writes_tx100 68879 writes/s
-altsql commits_tx100 689 commits/s
-altsql writes_tx10000 650131 writes/s
-altsql commits_tx10000 65 commits/s
-altsql peak_memory 39156 KB
-[Inferior 1 (process 6232) exited normally]
+altsql reads_4x 2763593 reads/s
+altsql writes_tx1 3833 writes/s
+altsql commits_tx1 3833 commits/s
+altsql writes_tx100 84619 writes/s
+altsql commits_tx100 846 commits/s
+altsql writes_tx10000 778223 writes/s
+altsql commits_tx10000 78 commits/s
+altsql peak_memory 40644 KB
+[Inferior 1 (process 295) exited normally]
 Num     Type           Disp Enb Address            What
-1       breakpoint     keep y   0x0000555555576570 in altsql_exec at ../../core/dist/altsql.h:3055
-2       breakpoint     keep y   0x000055555556b8d0 in as_lex at ../../core/dist/altsql.h:1761
-3       breakpoint     keep y   0x000055555556fee0 in as_parse_expr at ../../core/dist/altsql.h:2060
-4       breakpoint     keep y   0x00005555555766e9 in as_select at ../../core/dist/altsql.h:2726
-5       breakpoint     keep y   0x00005555555765d3 in as_exec at ../../core/dist/altsql.h:496
-6       breakpoint     keep y   0x00005555555751b0 in as_insert at ../../core/dist/altsql.h:2963
-7       breakpoint     keep y   0x0000555555576c27 in as_create at ../../core/dist/altsql.h:2918
+1       breakpoint     keep y   0x0000555555576dd0 in altsql_exec at ../../core/dist/altsql.h:3075
+2       breakpoint     keep y   0x000055555556c000 in as_lex at ../../core/dist/altsql.h:1781
+3       breakpoint     keep y   0x0000555555570910 in as_parse_expr at ../../core/dist/altsql.h:2080
+4       breakpoint     keep y   0x0000555555576f49 in as_select at ../../core/dist/altsql.h:2746
+5       breakpoint     keep y   0x0000555555576e33 in as_exec at ../../core/dist/altsql.h:504
+6       breakpoint     keep y   0x0000555555575a10 in as_insert at ../../core/dist/altsql.h:2983
+7       breakpoint     keep y   0x0000555555577487 in as_create at ../../core/dist/altsql.h:2938
 exit 0

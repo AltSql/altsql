@@ -1,0 +1,67 @@
+AltSql DB Gate 2: 1000000 rows, 8 MB of memory each, files with real syncs; three runs on one core, the middle of three
+(query times are each run's best of three; a spread above 5% is marked *)
+
+engine    measure                                                                                                     run 1        run 2        run 3       middle   spread
+core      load: plain                                                                                             5,904,848    5,804,910    5,664,809    5,804,910     4.1%
+core      bytes_per_row: plain                                                                                         32.3         32.3         32.3         32.3     0.0%
+core      query: SELECT time / 3600 AS hour, COUNT(*), AVG(temp), MIN(temp), MAX(temp) FROM readings GROUP ...        195.1        175.0        196.1        195.1    10.7% *
+core      query: SELECT machine, AVG(temp) FROM readings GROUP BY machine ORDER BY machine                            154.4        144.4        153.5        153.5     6.5% *
+core      query: SELECT COUNT(*) FROM readings WHERE temp > 29.5                                                      141.8        130.6        141.0        141.0     7.9% *
+core      query: SELECT time, temp FROM readings WHERE time >= 1768222000 AND machine = 3                              0.60         0.63         0.65         0.63     7.7% *
+core      query: SELECT time, temp FROM readings ORDER BY temp DESC LIMIT 5                                           144.7        135.9        142.3        142.3     6.0% *
+altsqldb  load: plain                                                                                             2,832,990    3,331,583    2,879,473    2,879,473    15.0% *
+altsqldb  load: indexed                                                                                             239,647      256,052      261,997      256,052     8.5% *
+altsqldb  bytes_per_row: plain                                                                                         31.4         31.4         31.4         31.4     0.0%
+altsqldb  bytes_per_row: indexed                                                                                       76.8         76.8         76.8         76.8     0.0%
+altsqldb  query: SELECT time / 3600 AS hour, COUNT(*), AVG(temp), MIN(temp), MAX(temp) FROM readings GROUP ...        162.7        143.5        153.8        153.8    11.8% *
+altsqldb  query: SELECT machine, AVG(temp) FROM readings GROUP BY machine ORDER BY machine                            127.9        112.8        120.7        120.7    11.8% *
+altsqldb  query: SELECT COUNT(*) FROM readings WHERE temp > 29.5                                                      109.6        101.2        107.8        107.8     7.7% *
+altsqldb  query: SELECT time, temp FROM readings WHERE time >= 1768222000 AND machine = 3                              0.38         0.40         0.42         0.40     9.5% *
+altsqldb  query: SELECT time, temp FROM readings ORDER BY temp DESC LIMIT 5                                           114.2         99.7        105.9        105.9    12.7% *
+altsqldb  query: SELECT COUNT(*), MIN(time) FROM readings WHERE temp = 25.5                                            0.54         0.50         0.51         0.51     7.4% *
+altsqldb  query: SELECT COUNT(*), MIN(time) FROM readings WHERE (temp = 25.5) OR 0 = 1                                125.8        126.4        121.1        125.8     4.2%
+altsqldb  query: SELECT time, temp FROM readings WHERE temp BETWEEN 25.5 AND 25.52 AND machine = 6                     1.46         1.45         1.38         1.45     5.5% *
+altsqldb  query: SELECT time, temp FROM readings WHERE (temp BETWEEN 25.5 AND 25.52 AND machine = 6) OR 0 = 1         134.1        130.3        131.0        131.0     2.9%
+altsqldb  index_build_s                                                                                                0.61         0.58         0.60         0.60     4.9%
+altsqldb  index_bytes_per_row                                                                                          21.3         21.3         21.3         21.3     0.0%
+altsqldb  index_speedup: SELECT COUNT(*), MIN(time) FROM readings WHERE (temp = 25.5) OR 0 = 1                        231.0        252.0        238.0        238.0     8.3% *
+altsqldb  index_speedup: SELECT time, temp FROM readings WHERE (temp BETWEEN 25.5 AND 25.52 AND machine = 6...         92.0         90.0         95.0         92.0     5.3% *
+altsqldb  reopen_ms                                                                                                    0.05         0.03         0.03         0.03    40.0% *
+altsqldb  free_pages_pct: indexed                                                                                      22.0         22.0         22.0         22.0     0.0%
+sqlite    load: plain                                                                                             1,814,217    1,892,770    1,848,920    1,848,920     4.2%
+sqlite    load: indexed                                                                                             143,639      145,203      140,075      143,639     3.5%
+sqlite    bytes_per_row: plain                                                                                         21.0         21.0         21.0         21.0     0.0%
+sqlite    bytes_per_row: indexed                                                                                       42.9         42.9         42.9         42.9     0.0%
+sqlite    query: SELECT time / 3600 AS hour, COUNT(*), AVG(temp), MIN(temp), MAX(temp) FROM readings GROUP ...        282.2        287.2        277.4        282.2     3.4%
+sqlite    query: SELECT machine, AVG(temp) FROM readings GROUP BY machine ORDER BY machine                            245.8        245.2        254.0        245.8     3.5%
+sqlite    query: SELECT COUNT(*) FROM readings WHERE temp > 29.5                                                       34.4         34.4         40.3         34.4    14.8% *
+sqlite    query: SELECT time, temp FROM readings WHERE time >= 1768222000 AND machine = 3                              0.08         0.10         0.10         0.10    20.0% *
+sqlite    query: SELECT time, temp FROM readings ORDER BY temp DESC LIMIT 5                                            45.0         45.7         45.7         45.7     1.5%
+sqlite    query: SELECT COUNT(*), MIN(time) FROM readings WHERE temp = 25.5                                            0.05         0.05         0.07         0.05    28.6% *
+sqlite    query: SELECT time, temp FROM readings WHERE temp BETWEEN 25.5 AND 25.52 AND machine = 6                     1.25         1.59         1.56         1.56    21.4% *
+sqlite    index_build_s                                                                                                0.42         0.45         0.46         0.45     8.7% *
+sqlite    index_bytes_per_row                                                                                          18.0         18.0         18.0         18.0     0.0%
+sync      sync_readings_per_s                                                                                       326,034      291,257      309,232      309,232    10.7% *
+synced    query: SELECT time / 3600 AS hour, COUNT(*), AVG(temp), MIN(temp), MAX(temp) FROM readings GROUP ...        160.3        163.2        174.2        163.2     8.0% *
+synced    query: SELECT machine, AVG(temp) FROM readings GROUP BY machine ORDER BY machine                            138.1        125.8        140.2        138.1    10.3% *
+synced    query: SELECT COUNT(*) FROM readings WHERE temp > 29.5                                                      125.9        117.5        126.0        125.9     6.7% *
+synced    query: SELECT time, temp FROM readings WHERE time >= 1767232000 AND machine = 3                              49.4         48.0         53.8         49.4    10.9% *
+synced    query: SELECT time, temp FROM readings ORDER BY temp DESC LIMIT 5                                           116.6        114.5        124.5        116.6     8.0% *
+
+What statement savepoints cost (a file in RAM; statements a second, middle of three)
+                                                                            0.2          0.3   change spread 0.2/0.3
+INSERT, one row a statement, 1,000 statements a transaction           1,068,729      948,778     -11%   15.6%   3.6%
+UPDATE by key, 1,000 statements a transaction                           283,387      259,365      -8%    9.1%   1.0%
+UPDATE by key, each statement its own transaction (no savepoint)        123,033      136,580     +11%    1.7%   7.4%
+
+Pass marks
+  SELECT time / 3600 AS hour, COUNT(*), AVG(temp), MIN(temp), MAX(temp) FROM readings GROUP BY hour    AltSql DB   153.77 ms, Core   195.07 ms  faster
+  SELECT machine, AVG(temp) FROM readings GROUP BY machine ORDER BY machine                            AltSql DB   120.72 ms, Core   153.53 ms  faster
+  SELECT COUNT(*) FROM readings WHERE temp > 29.5                                                      AltSql DB   107.84 ms, Core   141.03 ms  faster
+  SELECT time, temp FROM readings WHERE time >= 1768222000 AND machine = 3                             AltSql DB     0.40 ms, Core     0.63 ms  faster
+  SELECT time, temp FROM readings ORDER BY temp DESC LIMIT 5                                           AltSql DB   105.89 ms, Core   142.28 ms  faster
+  AltSql DB faster than AltSql Core on all five of Core's queries: PASS
+  a lookup through an index at least 10 times faster than a full scan: 238x  PASS
+  figures with a spread above 5%: 28 of 45 (marked * above)
+
+exit 0

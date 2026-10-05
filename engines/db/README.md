@@ -105,7 +105,8 @@ What 0.1 built, all still there:
     make mutants     plants deliberate bugs and checks that the tests catch them
     make gate1       Gate 1 against SQLite and LMDB (fetches them; idle machine)
     make size        code size beside AltSql Core and SQLite
-    sh tools/all_logs.sh <dir>   every log in results/ but fuzz.log and mutants.log
+    sh tools/all_logs.sh <dir>   every log in results/ but fuzz.log, mutants.log and gate1_versions.log
+    python3 tools/gate1_versions.py <dir>   Gate 1's direct path on 0.1, 0.2 and this code, side by side
 
 What the tests check (logs in `results/`, made on 0.3.0-alpha unless marked 0.1):
 
@@ -186,76 +187,97 @@ What the tests check (logs in `results/`, made on 0.3.0-alpha unless marked 0.1)
 - **mutants**: 56 of 56 planted bugs caught: 0.1's 37, one in sync in order
   (0.2), 8 in statement savepoints and 10 in secondary indexes (0.3).
 
-## Gate 1 (measured on 0.1)
+## Gate 1 (measured again on 0.3)
 
-Not run again for 0.2 or 0.3. `tools/gate1.c` runs the same one million keys and values through AltSql
+`tools/gate1.c` runs the same one million keys and values through AltSql
 DB's direct path, SQLite 3.53.4 (built with its recommended options) and
 LMDB 0.9.35, each in its own process, on real files with real syncs;
-`tools/gate1_report.py` runs everything three times. Middle of three runs:
+`tools/gate1_report.py` runs everything three times. Middle of three runs on
+0.3, on 5 October, pinned to one CPU (0.1's of 2 October in brackets):
 
 | Pass mark | Result | |
 |---|---|---|
-| Reads in the cache, 2x SQLite's best through SQL | 5.00x | pass |
-| The same with whole-number keys, 2x SQLite's blob path | 1.21x | fail, accepted |
-| Ordered scan, 0.8x SQLite | 0.88x | pass |
-| 10,000-write transactions, 0.8x SQLite | 3.32x | pass |
+| Reads in the cache, 2x SQLite's best through SQL | 4.42x (5.00x) | pass |
+| The same with whole-number keys, 2x SQLite's blob path | 1.22x (1.21x) | fail, accepted |
+| Ordered scan, 0.8x SQLite | 0.74x (0.88x) | FAIL |
+| 10,000-write transactions, 0.8x SQLite | 2.58x (3.32x) | pass |
 | Read runs never enter SQL code | no call into Core's parser or executor (gdb) | pass |
-| Three runs within 5% | reads_cached 2.8%, scan 3.6%, writes_tx10000 7.7%, reads_4x 4.8%; SQLite's and LMDB's own runs up to 42.9% | FAIL |
+| Three runs within 5% | reads_cached 3.4%, scan 5.9%, writes_tx10000 13.7%, reads_4x 9.5%; SQLite's and LMDB's own runs up to 28.6% | FAIL |
 
-The decision (2 October): Gate 1 counts as passed against SQLite's SQL
+The scan: AltSql DB scanned 13.7 million entries a second (14.6 on 0.1)
+and SQLite with mmap 18.5 million (16.6 on 2 October; its own three runs
+spread 28.6%). The scan's code is the same as in 0.2 and runs no more
+instructions: callgrind counts 73.1 million for two scans of 100,000
+entries on 0.3 and 73.3 million on 0.2 (`tools/scan_count.c`). Yet in six
+rounds of the 0.1, 0.2 and 0.3 builds run in turn
+(`tools/gate1_versions.py`, `results/gate1_versions.log`), 0.3 scanned 14.4
+million entries a second at the middle against 15.3 and 15.7 million; its
+reads, writes and load were level with the other two or ahead. Building 0.3 with its code
+aligned to 64 bytes did not close the gap (13.7 million). Finding the cause
+needs a quiet machine with hardware counters.
+
+The decision of 2 October: Gate 1 counts as passed against SQLite's SQL
 path; the blob path stays on record as a gap; the spread needs a quiet
-machine.
+machine. The scan result of 5 October came after it and is not decided.
 
 ## Gate 2: measurements
 
 `tools/bench.c`, Core's one-million-row benchmark and its five queries, each
-database in a file with real syncs and 8 MB of memory (`results/bench.log`).
-Since 0.3 it also makes a secondary index over the million rows, asks two
-questions through it on AltSql DB and on SQLite, and loads the rows again
-into a table that keeps an index. One run on a shared cloud machine, so the
-figures are indicative (0.1's were the best of three); an earlier run of
-the same code that day loaded 2,850,847 rows/s on the direct path.
+database in a file with real syncs and 8 MB of memory. Since 0.3 it also
+makes a secondary index over the million rows, asks two questions through
+it on AltSql DB and on SQLite, and loads the rows again into a table that
+keeps an index. `tools/gate2_report.py` runs it three times on one CPU,
+with the savepoint benchmark; the tables give the middle of three
+(`results/gate2_summary.log`, each run in `results/gate2_run*.log`; the
+machine in `results/machine.log`). 28 of the 45 figures spread more than 5%
+across the three runs, so they are indicative; both marks below held in
+every run.
 
 | | AltSql Core | AltSql DB 0.3 | SQLite |
 |---|---|---|---|
-| SELECT time / 3600 AS hour, COUNT(*), AVG(temp), MIN(temp), MAX(temp) FROM readings GROUP BY hour | 193.2 ms | 151.3 ms | 294.9 ms |
-| SELECT machine, AVG(temp) FROM readings GROUP BY machine ORDER BY machine | 149.9 ms | 116.4 ms | 258.2 ms |
-| SELECT COUNT(*) FROM readings WHERE temp > 29.5 | 138.3 ms | 102.0 ms | 36.2 ms |
-| SELECT time, temp FROM readings WHERE time >= 1768222000 AND machine = 3 | 0.6 ms | 0.4 ms | 0.1 ms |
-| SELECT time, temp FROM readings ORDER BY temp DESC LIMIT 5 | 136.1 ms | 102.2 ms | 47.7 ms |
-| Load, rows/s | 5,955,803 | 2,581,333 (direct path) | 1,684,259 |
+| SELECT time / 3600 AS hour, COUNT(*), AVG(temp), MIN(temp), MAX(temp) FROM readings GROUP BY hour | 195.1 ms | 153.8 ms | 282.2 ms |
+| SELECT machine, AVG(temp) FROM readings GROUP BY machine ORDER BY machine | 153.5 ms | 120.7 ms | 245.8 ms |
+| SELECT COUNT(*) FROM readings WHERE temp > 29.5 | 141.0 ms | 107.8 ms | 34.4 ms |
+| SELECT time, temp FROM readings WHERE time >= 1768222000 AND machine = 3 | 0.63 ms | 0.40 ms | 0.10 ms |
+| SELECT time, temp FROM readings ORDER BY temp DESC LIMIT 5 | 142.3 ms | 105.9 ms | 45.7 ms |
+| Load, rows/s | 5,804,910 | 2,879,473 (direct path) | 1,848,920 |
 | Bytes per row | 32.3 on flash | 31.4 | 21.0 |
-| Reopen | scans the log | 0.04 ms | |
+| Reopen | scans the log | 0.03 ms | |
+
+AltSql DB is faster than AltSql Core on all five queries, the Alpha's mark.
 
 A secondary index on the same million rows (new in 0.3):
 
 | | AltSql DB 0.3 | SQLite |
 |---|---|---|
-| CREATE INDEX readings_temp ON readings (temp) | 0.61 s, 21.3 more bytes per row | 0.45 s, 18.0 more bytes per row |
-| SELECT COUNT(*), MIN(time) FROM readings WHERE temp = 25.5 (1,000 rows) | 0.7 ms; 132.2 ms as a full scan: 198x | under 0.05 ms |
-| SELECT time, temp FROM readings WHERE temp BETWEEN 25.5 AND 25.52 AND machine = 6 (500 rows) | 1.5 ms; 141.1 ms as a full scan: 93x | 1.4 ms |
-| Load into a table with an index on (machine, temp), rows/s | 232,978; 76.8 bytes per row, 22% of the file's pages free for reuse | 142,455; 42.9 bytes per row |
+| CREATE INDEX readings_temp ON readings (temp) | 0.60 s, 21.3 more bytes per row | 0.45 s, 18.0 more bytes per row |
+| SELECT COUNT(*), MIN(time) FROM readings WHERE temp = 25.5 (1,000 rows) | 0.51 ms; 125.8 ms as a full scan: 238x | 0.05 ms |
+| SELECT time, temp FROM readings WHERE temp BETWEEN 25.5 AND 25.52 AND machine = 6 (500 rows) | 1.45 ms; 131.0 ms as a full scan: 92x | 1.56 ms |
+| Load into a table with an index on (machine, temp), rows/s | 256,052; 76.8 bytes per row, 22% of the file's pages free for reuse | 143,639; 42.9 bytes per row |
 
-The design mark, an index lookup on a million rows at least 10 times
-faster than a full scan, is met. AltSql DB reads each row the index names
-from the table; SQLite counts from its index alone. Keeping an index costs
-a second write for each row, and with copy on write every commit copies the
-index pages it changed: hence the free pages after the indexed load.
+Each ratio is the middle of the three runs' own ratios. The design mark,
+an index lookup on a million rows at least 10 times faster than a full
+scan, is met (231x, 252x and 238x in the three runs).
+AltSql DB reads each row the index names from the table; SQLite counts
+from its index alone. Keeping an index costs a second write for each row,
+and with copy on write every commit copies the index pages it changed:
+hence the free pages after the indexed load.
 
-What statement savepoints cost (`tools/bench_sp.c`, `results/bench_sp.log`):
-SQL statements on a file in RAM, so the engine's own time is all there is,
-built on 0.3 and on 0.2's header. Statements a second:
+What statement savepoints cost (`tools/bench_sp.c`, in the same three runs,
+`results/bench_sp_run*.log`): SQL statements on a file in RAM, so the
+engine's own time is all there is, built on 0.3 and on 0.2's header.
+Statements a second, middle of three:
 
 | | 0.2 | 0.3 | |
 |---|---|---|---|
-| INSERT, one row a statement, 1,000 statements a transaction (a savepoint each in 0.3) | 1,105,304 | 989,945 | -10% |
-| UPDATE by key, 1,000 statements a transaction (a savepoint each in 0.3) | 270,694 | 256,484 | -5% |
-| UPDATE by key, each statement its own transaction (no savepoint) | 125,620 | 141,618 | +13% |
+| INSERT, one row a statement, 1,000 statements a transaction (a savepoint each in 0.3) | 1,068,729 | 948,778 | -11% |
+| UPDATE by key, 1,000 statements a transaction (a savepoint each in 0.3) | 283,387 | 259,365 | -8% |
+| UPDATE by key, each statement its own transaction (no savepoint) | 123,033 | 136,580 | +11% |
 
 Sync: one million readings from 100 Core devices, batches of up to 4 KB, one
-commit each: 330,501 readings/s (2,446 commits/s), 35.1 bytes per reading on
-disk (0.2: 326,699). 0.1's best of three: 279,094 readings/s; the queries
-161.4, 131.8, 118.4, 0.5 and 118.3 ms on AltSql DB.
+commit each: 309,232 readings/s, 35.1 bytes per reading on disk (0.2, one
+run: 326,699). 0.1's best of three: 279,094 readings/s; the queries 161.4,
+131.8, 118.4, 0.5 and 118.3 ms on AltSql DB.
 
 Code size at -O2: 122,912 bytes for AltSql DB (96,821 in 0.2), 126,472
 with both ports; with AltSql Core's gateway build (68,180) that is 194,652

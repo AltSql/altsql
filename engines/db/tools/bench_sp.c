@@ -5,7 +5,7 @@
 /* What statement savepoints cost (0.3): SQL statements inside transactions, each now under a
  * savepoint, against the same work in transactions of their own, which need none. A file in
  * RAM, so the time is the engine's own. Built against 0.2's header too, for the same figures
- * from before savepoints (see tools/README or results/bench_sp.log).
+ * from before savepoints. tools/gate2_report.py runs both three times (results/gate2_summary.log).
  *   bench_sp [rows] */
 #define ALTSQL_IMPLEMENTATION
 #define ALTSQL_PORT_RAM

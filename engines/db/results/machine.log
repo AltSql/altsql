@@ -1,0 +1,6 @@
+The machine the speed figures ran on (05 October 2026, 15:46 IDT)
+  Intel(R) Xeon(R) Processor @ 2.10GHz, 2 virtual CPUs, 8031 MB of memory
+  Linux 6.18.44-fc-v70, a Firecracker virtual machine on a shared cloud host; the runs pinned to CPU 1
+  load before the runs: 0.26 0.14 0.05
+  over the runs, CPU time the host took for itself (steal): 0.02% of both CPUs' time; idle 49.1%; waiting for the disk 13.4%
+  load after the runs: 1.00 0.66 0.30

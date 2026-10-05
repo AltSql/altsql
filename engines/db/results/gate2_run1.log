@@ -1,0 +1,53 @@
+AltSql DB 0.3.0-alpha measurements: 1000000 rows, 8 MB of memory each, files with real syncs
+core     load  5904848 rows/s, 32.3 bytes per row on flash
+core     query   195.07 ms  278 rows  SELECT time / 3600 AS hour, COUNT(*), AVG(temp), MIN(temp), MAX(temp) FROM readings GROUP BY hour
+core     query   154.41 ms  16 rows  SELECT machine, AVG(temp) FROM readings GROUP BY machine ORDER BY machine
+core     query   141.80 ms  1 rows  SELECT COUNT(*) FROM readings WHERE temp > 29.5
+core     query     0.60 ms  225 rows  SELECT time, temp FROM readings WHERE time >= 1768222000 AND machine = 3
+core     query   144.69 ms  5 rows  SELECT time, temp FROM readings ORDER BY temp DESC LIMIT 5
+altsqldb load  2832990 rows/s (direct path, 10,000 rows per transaction), 31.4 bytes per row on disk
+altsqldb query   162.66 ms  278 rows  SELECT time / 3600 AS hour, COUNT(*), AVG(temp), MIN(temp), MAX(temp) FROM readings GROUP BY hour
+               plan: full scan (readings)
+altsqldb query   127.92 ms  16 rows  SELECT machine, AVG(temp) FROM readings GROUP BY machine ORDER BY machine
+               plan: full scan (readings)
+altsqldb query   109.61 ms  1 rows  SELECT COUNT(*) FROM readings WHERE temp > 29.5
+               plan: full scan (readings)
+altsqldb query     0.38 ms  225 rows  SELECT time, temp FROM readings WHERE time >= 1768222000 AND machine = 3
+               plan: range scan (readings, range on time)
+altsqldb query   114.18 ms  5 rows  SELECT time, temp FROM readings ORDER BY temp DESC LIMIT 5
+               plan: full scan (readings)
+altsqldb index readings_temp (temp) made over 1000000 rows in 0.61 s; 21.3 more bytes per row on disk
+altsqldb query     0.54 ms  1 rows  SELECT COUNT(*), MIN(time) FROM readings WHERE temp = 25.5
+               plan: index lookup (readings, index readings_temp, fixed: temp)
+altsqldb query   125.75 ms  1 rows  SELECT COUNT(*), MIN(time) FROM readings WHERE (temp = 25.5) OR 0 = 1
+               plan: full scan (WHERE made opaque); through the index 231 times faster
+altsqldb query     1.46 ms  500 rows  SELECT time, temp FROM readings WHERE temp BETWEEN 25.5 AND 25.52 AND machine = 6
+               plan: index range (readings, index readings_temp, range on temp)
+altsqldb query   134.12 ms  500 rows  SELECT time, temp FROM readings WHERE (temp BETWEEN 25.5 AND 25.52 AND machine = 6) OR 0 = 1
+               plan: full scan (WHERE made opaque); through the index 92 times faster
+altsqldb reopen 0.05 ms
+altsqldb load  239647 rows/s with an index on (machine, temp) kept as rows arrive, 76.8 bytes per row on disk,
+               22% of the file's pages free for reuse: each commit copies the index pages it changed
+sqlite   load  1814217 rows/s (prepared INSERT, 10,000 rows per transaction), 21.0 bytes per row on disk (SQLite 3.53.4)
+sqlite   query   282.18 ms  278 rows  SELECT time / 3600 AS hour, COUNT(*), AVG(temp), MIN(temp), MAX(temp) FROM readings GROUP BY hour
+sqlite   query   245.83 ms  16 rows  SELECT machine, AVG(temp) FROM readings GROUP BY machine ORDER BY machine
+sqlite   query    34.35 ms  1 rows  SELECT COUNT(*) FROM readings WHERE temp > 29.5
+sqlite   query     0.08 ms  225 rows  SELECT time, temp FROM readings WHERE time >= 1768222000 AND machine = 3
+sqlite   query    44.99 ms  5 rows  SELECT time, temp FROM readings ORDER BY temp DESC LIMIT 5
+sqlite   index readings_temp (temp) made over 1000000 rows in 0.42 s; 18.0 more bytes per row on disk
+sqlite   query     0.05 ms  1 rows  SELECT COUNT(*), MIN(time) FROM readings WHERE temp = 25.5
+               COUNT(*) = 1000 rows with temp = 25.5
+sqlite   query     1.25 ms  500 rows  SELECT time, temp FROM readings WHERE temp BETWEEN 25.5 AND 25.52 AND machine = 6
+sqlite   load  143639 rows/s with an index on (machine, temp) kept as rows arrive, 42.9 bytes per row on disk
+sync     326034 readings/s into one file (100 devices, 7400 batches of up to 4 KB, 2413 commits/s)
+sync     35.1 bytes per reading on disk (a reading here: time, machine, temp)
+synced   query   160.30 ms  3 rows  SELECT time / 3600 AS hour, COUNT(*), AVG(temp), MIN(temp), MAX(temp) FROM readings GROUP BY hour
+               plan: full scan (readings)
+synced   query   138.12 ms  16 rows  SELECT machine, AVG(temp) FROM readings GROUP BY machine ORDER BY machine
+               plan: full scan (readings)
+synced   query   125.94 ms  1 rows  SELECT COUNT(*) FROM readings WHERE temp > 29.5
+               plan: full scan (readings)
+synced   query    49.42 ms  22500 rows  SELECT time, temp FROM readings WHERE time >= 1767232000 AND machine = 3
+               plan: range per device (readings, range on time)
+synced   query   116.59 ms  5 rows  SELECT time, temp FROM readings ORDER BY temp DESC LIMIT 5
+               plan: full scan (readings)
