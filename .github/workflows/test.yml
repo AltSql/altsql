@@ -22,8 +22,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: AltSql Core
-        run: make -C core test
+        run: bash .github/ci-run.sh make -C core test
       - name: AltSql DB
-        run: make -C engines/db test
+        run: bash .github/ci-run.sh make -C engines/db test
       - name: Both shells, end to end
-        run: make -C engines/db test-shell
+        run: bash .github/ci-run.sh make -C engines/db test-shell
