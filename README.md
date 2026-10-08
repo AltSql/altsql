@@ -8,7 +8,7 @@ records are the same on both, byte for byte, so there's nothing to translate
 in between. The device keeps working and deciding when the network is gone,
 and it sends less.
 
-**Status: 0.3.0-alpha** (AltSql DB 0.3.0-alpha, AltSql Core 0.1.0-alpha).
+**Status: 0.4.0, an alpha** (AltSql Core and AltSql DB share the version).
 Written to prove the design and measure it.
 Everything runs on a PC in simulation; nothing has run on a microcontroller
 or a gateway yet. File formats may still change. Not for production.
@@ -23,12 +23,18 @@ or a gateway yet. File formats may still change. Not for production.
 
 Two command-line shells come with them: `altsql` for a device's database
 (`core/tools/cli.c`) and `altsql-db` for a gateway's (`engines/db/tools/shell.c`).
-Ready-made binaries for Linux x86-64 are in
-[`releases/v0.3.0-alpha/`](releases/v0.3.0-alpha/), with the release notes.
+Ready-built binaries for Linux (x86-64 and ARM64) and macOS (Apple silicon
+and Intel) are on the [latest release](https://github.com/AltSql/altsql/releases/latest),
+with the release notes. For Linux x86-64, say:
+
+```sh
+curl -LO https://github.com/AltSql/altsql/releases/latest/download/altsql_linux_amd64.tar.gz
+tar xzf altsql_linux_amd64.tar.gz && ./altsql-db --version
+```
 
 ## Build and test
 
-Linux, gcc or clang:
+Linux or macOS, gcc or clang:
 
 ```sh
 cd core && make test

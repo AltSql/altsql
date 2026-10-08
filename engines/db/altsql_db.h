@@ -40,7 +40,7 @@
 
 #include "altsql.h"
 
-#define ALTSQL_DB_VERSION "0.3.0-alpha"
+#define ALTSQL_DB_VERSION "0.4.0"
 
 #ifdef __cplusplus
 extern "C" {
@@ -5289,7 +5289,9 @@ static int asd_px_sync(void *ctx) {
     altsql_db_posix *p = (altsql_db_posix *)ctx;
     if (p->nosync) return 0;
 #if defined(__APPLE__)
+#ifdef F_FULLFSYNC /* hidden by _POSIX_C_SOURCE unless _DARWIN_C_SOURCE is set too */
     if (fcntl(p->fd, F_FULLFSYNC) != -1) return 0;
+#endif
     return fsync(p->fd) ? -1 : 0;
 #else
     return fdatasync(p->fd) ? -1 : 0;

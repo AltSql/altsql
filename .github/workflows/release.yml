@@ -1,0 +1,248 @@
+name: release
+
+# Builds the AltSql shells, checks each build, and publishes them with a
+# release.
+#
+# Releases go out on their own. When the test workflow passes on a push to
+# main and ALTSQL_DB_VERSION in engines/db/altsql_db.h has no tag yet, this
+# workflow builds the two shells, altsql and altsql-db, from that commit for
+# Linux (x86-64 and ARM, static) and macOS (Apple silicon and Intel), runs the
+# end-to-end shell test on each build its runner can execute, then tags the
+# commit vX.Y.Z and publishes the release "AltSql vX.Y.Z" with the archives,
+# SHA256SUMS and the version's CHANGELOG section. Nothing goes public unless
+# every build and check passes. AltSql Core's ALTSQL_VERSION must be the same
+# version; the plan step refuses a commit where they differ.
+#
+# The archive names carry no version, so
+# https://github.com/AltSql/altsql/releases/latest/download/altsql_linux_amd64.tar.gz
+# always gets the newest release.
+#
+# It also attaches binaries to a release someone publishes by hand, and it
+# can be run by hand to rebuild the binaries of an existing tag.
+
+on:
+  workflow_run:
+    workflows: [test]
+    types: [completed]
+    branches: [main]
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to build, such as v0.4.0"
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  CFLAGS_COMMON: -std=c99 -pedantic -Wall -Wextra -O2 -D_POSIX_C_SOURCE=200809L
+
+jobs:
+  plan:
+    # After the tests, only for a push to main in this repository that passed.
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.plan.outputs.tag }}
+      ref: ${{ steps.plan.outputs.ref }}
+      new: ${{ steps.plan.outputs.new }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          case "$EVENT" in
+          workflow_run)
+            # Only the commit main is at now; if main has moved on, the run
+            # after the next push decides.
+            head=$(git ls-remote origin refs/heads/main | cut -f1)
+            if [ "$head" != "$RUN_SHA" ]; then
+              echo "No release: main has moved on from $RUN_SHA to $head."
+              exit 0
+            fi
+            version=$(sed -n 's/^#define ALTSQL_DB_VERSION "\([0-9]*\.[0-9]*\.[0-9]*\)"$/\1/p' engines/db/altsql_db.h)
+            if [ -z "$version" ]; then
+              echo "No release: ALTSQL_DB_VERSION in engines/db/altsql_db.h isn't of the form X.Y.Z."
+              exit 0
+            fi
+            for f in core/src/altsql.h core/dist/altsql.h; do
+              core=$(sed -n 's/^#define ALTSQL_VERSION "\(.*\)"$/\1/p' "$f")
+              if [ "$core" != "$version" ]; then
+                echo "ALTSQL_VERSION in $f is '$core', not $version; AltSql Core and AltSql DB share one version" >&2
+                exit 1
+              fi
+            done
+            tags=$(git ls-remote --tags --refs origin) || { echo "Couldn't read the repository's tags" >&2; exit 1; }
+            if grep -q "refs/tags/v$version\$" <<< "$tags"; then
+              echo "No release: v$version is out already."
+              exit 0
+            fi
+            newest=$({ grep -o 'refs/tags/v[0-9]*\.[0-9]*\.[0-9]*$' <<< "$tags" || true; } | sed 's|refs/tags/v||' | sort -V | tail -n 1)
+            if [ -n "$newest" ] && [ "$(printf '%s\n%s\n' "$newest" "$version" | sort -V | tail -n 1)" != "$version" ]; then
+              echo "v$version is older than the newest release, v$newest; raise the version above it" >&2
+              exit 1
+            fi
+            echo "Releasing v$version from $RUN_SHA."
+            { echo "tag=v$version"; echo "ref=$RUN_SHA"; echo "new=true"; } >> "$GITHUB_OUTPUT"
+            ;;
+          release)
+            { echo "tag=$RELEASE_TAG"; echo "ref=$RELEASE_TAG"; } >> "$GITHUB_OUTPUT"
+            ;;
+          workflow_dispatch)
+            { echo "tag=$INPUT_TAG"; echo "ref=$INPUT_TAG"; } >> "$GITHUB_OUTPUT"
+            ;;
+          esac
+
+  linux:
+    needs: plan
+    if: needs.plan.outputs.tag != ''
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.plan.outputs.ref }}
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq musl-tools
+      - name: Build both shells, static
+        run: |
+          mkdir pkg
+          musl-gcc $CFLAGS_COMMON -static -s -Icore/dist -o pkg/altsql core/tools/cli.c
+          musl-gcc $CFLAGS_COMMON -static -s -Icore/dist -Iengines/db -o pkg/altsql-db engines/db/tools/shell.c -lm
+          file pkg/altsql pkg/altsql-db
+          pkg/altsql-db --version
+      - name: End-to-end test of the built shells
+        run: ALTSQL_SHELL=$PWD/pkg/altsql ALTSQL_DB_SHELL=$PWD/pkg/altsql-db sh engines/db/tests/test_shell.sh
+      - name: Package
+        run: |
+          cp LICENSE NOTICE README.md pkg/
+          tar -czf altsql_linux_${{ matrix.arch }}.tar.gz -C pkg .
+      - uses: actions/upload-artifact@v7
+        with:
+          name: altsql_linux_${{ matrix.arch }}
+          path: altsql_linux_${{ matrix.arch }}.tar.gz
+
+  macos:
+    needs: plan
+    if: needs.plan.outputs.tag != ''
+    strategy:
+      matrix:
+        include:
+          - arch: arm64
+            clang: arm64
+          - arch: amd64
+            clang: x86_64
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.plan.outputs.ref }}
+      - name: Build both shells
+        # _DARWIN_C_SOURCE makes F_FULLFSYNC visible, so a sync reaches the disk.
+        run: |
+          mkdir pkg
+          clang -arch ${{ matrix.clang }} $CFLAGS_COMMON -D_DARWIN_C_SOURCE -Icore/dist -o pkg/altsql core/tools/cli.c
+          clang -arch ${{ matrix.clang }} $CFLAGS_COMMON -D_DARWIN_C_SOURCE -Icore/dist -Iengines/db -o pkg/altsql-db engines/db/tools/shell.c -lm
+          strip pkg/altsql pkg/altsql-db
+          file pkg/altsql pkg/altsql-db
+          file pkg/altsql-db | grep -q '${{ matrix.clang }}'
+      - name: End-to-end test of the built shells
+        run: |
+          if [ "${{ matrix.arch }}" = amd64 ] && ! arch -x86_64 /usr/bin/true 2> /dev/null; then
+            echo "This Mac runner can't run Intel binaries, so the Intel build is checked for its format only."
+            exit 0
+          fi
+          ALTSQL_SHELL=$PWD/pkg/altsql ALTSQL_DB_SHELL=$PWD/pkg/altsql-db sh engines/db/tests/test_shell.sh
+      - name: Package
+        run: |
+          cp LICENSE NOTICE README.md pkg/
+          tar -czf altsql_darwin_${{ matrix.arch }}.tar.gz -C pkg .
+      - uses: actions/upload-artifact@v7
+        with:
+          name: altsql_darwin_${{ matrix.arch }}
+          path: altsql_darwin_${{ matrix.arch }}.tar.gz
+
+  release:
+    needs: [plan, linux, macos]
+    # Two runs for the same tag take turns; the second finds it published.
+    concurrency:
+      group: release-${{ needs.plan.outputs.tag }}
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ needs.plan.outputs.tag }}
+      REF: ${{ needs.plan.outputs.ref }}
+      NEW: ${{ needs.plan.outputs.new }}
+      GH_TOKEN: ${{ github.token }}
+      FILES: altsql_linux_amd64.tar.gz altsql_linux_arm64.tar.gz altsql_darwin_arm64.tar.gz altsql_darwin_amd64.tar.gz SHA256SUMS
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.plan.outputs.ref }}
+          sparse-checkout: CHANGELOG.md
+          sparse-checkout-cone-mode: false
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums and notes
+        run: |
+          (cd dist && sha256sum *.tar.gz > SHA256SUMS && cat SHA256SUMS)
+          version=${TAG#v}
+          awk -v v="$version" '
+            /^## / { if (on) exit; if ($0 == "## " v || index($0, "## " v " ") == 1) { on = 1; next } }
+            on { print }
+          ' CHANGELOG.md > changes.md
+          {
+            cat changes.md
+            echo
+            echo "## Downloads"
+            echo
+            echo "| System | File |"
+            echo "|---|---|"
+            echo "| Linux, x86-64 (static) | altsql_linux_amd64.tar.gz |"
+            echo "| Linux, ARM64 (static) | altsql_linux_arm64.tar.gz |"
+            echo "| macOS, Apple silicon | altsql_darwin_arm64.tar.gz |"
+            echo "| macOS, Intel | altsql_darwin_amd64.tar.gz |"
+            echo
+            echo "Each archive holds the two shells, \`altsql\` for a device's database and \`altsql-db\` for a gateway's, with README.md, LICENSE and NOTICE. SHA256SUMS lists the checksums. The macOS binaries aren't signed by Apple, so macOS may ask you to allow them the first time, or run \`xattr -d com.apple.quarantine\` on each. AltSql is an alpha: file formats may still change, and it isn't for production."
+          } > notes.md
+          cat notes.md
+      - name: Tag the commit and publish the release, binaries attached
+        if: env.NEW == 'true'
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "$TAG is out already."
+            exit 0
+          fi
+          cd dist
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$REF" --latest \
+            --title "AltSql $TAG" --notes-file ../notes.md $FILES
+      - name: Attach the binaries to an existing release
+        if: env.NEW != 'true'
+        run: |
+          cd dist
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber $FILES
+          body=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body)
+          if [ -z "$body" ]; then
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file ../notes.md
+          fi

@@ -54,7 +54,7 @@
 #error "ALTSQL_ENABLE_SQL needs ALTSQL_ENABLE_TS"
 #endif
 
-#define ALTSQL_VERSION "0.1.0-alpha"
+#define ALTSQL_VERSION "0.4.0"
 
 #ifdef __cplusplus
 extern "C" {

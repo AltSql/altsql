@@ -16,6 +16,9 @@ CC      ?= cc
 CORE     = ../../core
 WARN     = -std=c99 -pedantic -Wall -Wextra -Wshadow
 DEFS     = -D_POSIX_C_SOURCE=200809L
+ifeq ($(shell uname -s),Darwin)
+DEFS    += -D_DARWIN_C_SOURCE
+endif
 INC      = -I$(CORE)/dist -I. -Itests
 SAN      = -O1 -g -fsanitize=address,undefined,float-cast-overflow -fno-omit-frame-pointer -fno-sanitize-recover=all
 TESTS    = build/test_db build/test_rows build/test_sync build/test_sql build/test_same build/test_savepoint build/test_index build/test_crash build/test_fault

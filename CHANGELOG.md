@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.4.0 (8 October 2026)
+
+The first AltSql release published with ready-built binaries for every
+system, made and checked by the release workflow. The engine's behaviour is
+unchanged from 0.3.0-alpha; file format version 3 is unchanged too.
+
+- **One version for both.** AltSql Core and AltSql DB now share one version
+  number, 0.4.0. Core was 0.1.0-alpha and DB 0.3.0-alpha; `altsql-db
+  --version` prints both, and both now say 0.4.0.
+- **Binaries for Linux and macOS.** `altsql` and `altsql-db` for Linux x86-64
+  and ARM64 (static) and for macOS on Apple silicon and Intel, as
+  `altsql_<system>_<arch>.tar.gz` on the release page. Each build runs the
+  end-to-end shell test before the release goes out. The names carry no
+  version, so the `releases/latest/download/` links stay the same.
+- **macOS.** AltSql DB built with `-D_POSIX_C_SOURCE` alone couldn't see
+  `F_FULLFSYNC` and didn't compile. The sync now falls back to `fsync` when
+  `F_FULLFSYNC` is hidden, and both Makefiles add `-D_DARWIN_C_SOURCE` on
+  macOS, so a sync there reaches the disk.
+- **Tests on every push.** Core's tests, DB's tests and the shell test run on
+  Linux x86-64, Linux ARM and macOS (`.github/workflows/test.yml`). A green
+  run on `main` with a new version is what publishes a release; see
+  [RELEASING.md](RELEASING.md).
+- **The browser demo** in `demos/db/` is rebuilt at 0.4.0
+  (`app/engine-db.v4.js`).
+- Releases now live on the GitHub release page. `releases/` keeps the
+  0.2.0-alpha and 0.3.0-alpha folders as they were.
+
 ## After 0.3.0-alpha (5 October 2026)
 
 - **The speed figures run again**, three times each on one CPU of the same

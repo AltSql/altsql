@@ -1,0 +1,29 @@
+name: test
+
+# Every push to main and every pull request: AltSql Core's tests, AltSql DB's
+# tests and the end-to-end test of both shells, on Linux x86-64, Linux ARM and
+# macOS. A green run on a push to main is what the release workflow waits for.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: AltSql Core
+        run: make -C core test
+      - name: AltSql DB
+        run: make -C engines/db test
+      - name: Both shells, end to end
+        run: make -C engines/db test-shell
