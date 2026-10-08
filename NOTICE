@@ -2,3 +2,9 @@ AltSql
 Copyright 2026 AltSql.com
 
 This product includes software developed at AltSql.com (https://altsql.com/).
+
+The Linux release binaries also include musl libc, linked statically.
+musl is under the MIT license, Copyright 2005-2020 Rich Felker, et al.
+Its license text is in THIRD-PARTY-LICENSES.txt, which comes in every
+release archive; in the Linux archives it is followed by the copyright
+file of the exact musl package the binaries were built with.

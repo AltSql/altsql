@@ -110,6 +110,10 @@ made, so the same version goes out on the next green run.
 - `workflow_run` only fires for workflow files on the default branch, so
   changes to either workflow take effect once they're on `main`.
 - No Windows binaries. AltSql's file layer is POSIX (pwrite, mmap, fdatasync).
+- Every archive carries `THIRD-PARTY-LICENSES.txt`. The static Linux binaries
+  link musl, so the Linux job appends the runner's musl copyright file and
+  version, and fails if that file is missing. Any new third-party code in a
+  binary gets its notice there and in `NOTICE` before it ships.
 - `releases/` holds 0.2.0-alpha and 0.3.0-alpha as they were. New releases
   don't add folders there.
 

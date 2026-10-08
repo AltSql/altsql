@@ -1,4 +1,4 @@
-# AltSql DB 0.4.0 (prototype)
+# AltSql DB 0.4.1 (prototype)
 
 The gateway database for a whole fleet. Devices keep running AltSql Core.
 A gateway that serves many of them keeps their records in AltSql DB: one
@@ -10,7 +10,7 @@ Copyright 2026 AltSql.com. Open source under the Apache License 2.0.
 
 ## Where it stands
 
-Version 0.4.0 (the engine of 0.3.0-alpha, unchanged), one C file of 5,470 lines, with every figure measured.
+Version 0.4.1 (the engine of 0.3.0-alpha, unchanged), one C file of 5,470 lines, with every figure measured.
 AltSql DB and AltSql Core, the engine, are the project's focus for now, both
 open source under the Apache License 2.0. 0.3 builds the last two steps of
 the design: statement savepoints and secondary indexes.

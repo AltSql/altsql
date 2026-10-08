@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.1 (8 October 2026)
+
+- **musl's license in the release archives.** The static Linux binaries link
+  musl libc, whose MIT license asks for its notice to come with them. 0.4.0's
+  archives left it out. `THIRD-PARTY-LICENSES.txt` now holds musl's license
+  and comes in every archive; in the Linux ones it's followed by the copyright
+  file of the exact musl package the binaries were built with. `NOTICE` names
+  musl too. The code is unchanged from 0.4.0.
+
 ## 0.4.0 (8 October 2026)
 
 The first AltSql release published with ready-built binaries for every

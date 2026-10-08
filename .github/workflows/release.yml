@@ -130,9 +130,18 @@ jobs:
           pkg/altsql-db --version
       - name: End-to-end test of the built shells
         run: ALTSQL_SHELL=$PWD/pkg/altsql ALTSQL_DB_SHELL=$PWD/pkg/altsql-db sh engines/db/tests/test_shell.sh
-      - name: Package
+      - name: Package, with the notice of the musl the binaries link
         run: |
           cp LICENSE NOTICE README.md pkg/
+          test -s /usr/share/doc/musl/copyright || { echo "no musl copyright file to ship" >&2; exit 1; }
+          {
+            cat THIRD-PARTY-LICENSES.txt
+            echo
+            echo "The musl these binaries were built with: $(dpkg-query -W -f '${Package} ${Version}' musl)"
+            echo "Its copyright file, as the package ships it:"
+            echo
+            cat /usr/share/doc/musl/copyright
+          } > pkg/THIRD-PARTY-LICENSES.txt
           tar -czf altsql_linux_${{ matrix.arch }}.tar.gz -C pkg .
       - uses: actions/upload-artifact@v7
         with:
@@ -172,7 +181,7 @@ jobs:
           ALTSQL_SHELL=$PWD/pkg/altsql ALTSQL_DB_SHELL=$PWD/pkg/altsql-db sh engines/db/tests/test_shell.sh
       - name: Package
         run: |
-          cp LICENSE NOTICE README.md pkg/
+          cp LICENSE NOTICE README.md THIRD-PARTY-LICENSES.txt pkg/
           tar -czf altsql_darwin_${{ matrix.arch }}.tar.gz -C pkg .
       - uses: actions/upload-artifact@v7
         with:
@@ -224,7 +233,7 @@ jobs:
             echo "| macOS, Apple silicon | altsql_darwin_arm64.tar.gz |"
             echo "| macOS, Intel | altsql_darwin_amd64.tar.gz |"
             echo
-            echo "Each archive holds the two shells, \`altsql\` for a device's database and \`altsql-db\` for a gateway's, with README.md, LICENSE and NOTICE. SHA256SUMS lists the checksums. The macOS binaries aren't signed by Apple, so macOS may ask you to allow them the first time, or run \`xattr -d com.apple.quarantine\` on each. AltSql is an alpha: file formats may still change, and it isn't for production."
+            echo "Each archive holds the two shells, \`altsql\` for a device's database and \`altsql-db\` for a gateway's, with README.md, LICENSE, NOTICE and THIRD-PARTY-LICENSES.txt (musl's MIT license, for the static Linux binaries). SHA256SUMS lists the checksums. The macOS binaries aren't signed by Apple, so macOS may ask you to allow them the first time, or run \`xattr -d com.apple.quarantine\` on each. AltSql is an alpha: file formats may still change, and it isn't for production."
           } > notes.md
           cat notes.md
       - name: Tag the commit and publish the release, binaries attached

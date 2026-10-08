@@ -8,7 +8,7 @@ records are the same on both, byte for byte, so there's nothing to translate
 in between. The device keeps working and deciding when the network is gone,
 and it sends less.
 
-**Status: 0.4.0, an alpha** (AltSql Core and AltSql DB share the version).
+**Status: 0.4.1, an alpha** (AltSql Core and AltSql DB share the version).
 Written to prove the design and measure it.
 Everything runs on a PC in simulation; nothing has run on a microcontroller
 or a gateway yet. File formats may still change. Not for production.
@@ -64,4 +64,5 @@ See [SECURITY.md](SECURITY.md).
 
 Apache License 2.0. Copyright 2026 AltSql.com. See [LICENSE](LICENSE) and
 [NOTICE](NOTICE). Everything in this repository is under Apache 2.0 unless a
-file says otherwise.
+file says otherwise. The static Linux release binaries also contain musl libc,
+under the MIT license; see [THIRD-PARTY-LICENSES.txt](THIRD-PARTY-LICENSES.txt).
