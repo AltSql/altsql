@@ -125,7 +125,10 @@ static int t_same_as_core(int quick) {
     for (i = 0; i < 1000; i++) {
         static const char *notes[] = { "alpha", "beta", "ab", "abc", "", "zeta" };
         int t = 1700000000 + (int)i;                                 /* in time order: Core reads a series in arrival order */
-        sprintf(sql, "INSERT INTO r VALUES (%d, %u, %.2f, '%s')", t, xs(&s) % 8, (double)(xs(&s) % 4000) / 100.0, notes[xs(&s) % 6]);
+        const char *note = notes[xs(&s) % 6];                           /* draws right to left, in the order gcc on x86-64 made them */
+        double temp = (double)(xs(&s) % 4000) / 100.0;
+        unsigned mach = xs(&s) % 8;
+        sprintf(sql, "INSERT INTO r VALUES (%d, %u, %.2f, '%s')", t, mach, temp, note);
         CHECK(altsql_exec(c.db, sql, NULL, NULL) == ALTSQL_OK, "core insert");
         CHECK(altsql_db_exec(g_db, sql, NULL, NULL) == ALTSQL_OK, "insert: %s", altsql_db_errmsg(g_db));
     }
@@ -145,8 +148,11 @@ static int t_same_as_core(int quick) {
         int a = (int)(xs(&s) % 3), b = (int)(xs(&s) % 3);
         long va = a == 0 ? 1700000000 + (long)(xs(&s) % 1000) : a == 1 ? (long)(xs(&s) % 9) : (long)(xs(&s) % 40);
         long vb = b == 0 ? 1700000000 + (long)(xs(&s) % 1000) : b == 1 ? (long)(xs(&s) % 9) : (long)(xs(&s) % 40);
-        sprintf(sql, "SELECT * FROM r WHERE %s %s %ld %s %s %s %ld ORDER BY time, machine, temp LIMIT 50",
-                cols[a], ops[xs(&s) % 6], va, xs(&s) % 3 ? "AND" : "OR", cols[b], ops[xs(&s) % 6], vb);
+        {
+            const char *opb = ops[xs(&s) % 6], *conj = xs(&s) % 3 ? "AND" : "OR", *opa = ops[xs(&s) % 6];   /* draws right to left, in the order gcc on x86-64 made them */
+            sprintf(sql, "SELECT * FROM r WHERE %s %s %ld %s %s %s %ld ORDER BY time, machine, temp LIMIT 50",
+                    cols[a], opa, va, conj, cols[b], opb, vb);
+        }
         if (both(&c, sql, 1)) return 1;
     }
     altsql_close(c.db);
@@ -214,7 +220,8 @@ static int t_plans(int quick) {
         case 0: sprintf(sql, "machine %s %u", ops[xs(&s) % 5], m); break;
         case 1: sprintf(sql, "machine = %u AND time %s %u", m, ops[xs(&s) % 5], t); break;
         case 2: sprintf(sql, "machine = %u AND time BETWEEN %u AND %u", m, t, t + xs(&s) % 20); break;
-        case 3: sprintf(sql, "%u %s machine AND temp > %u", m, ops[xs(&s) % 5], xs(&s) % 40); break;
+        case 3: { unsigned v = xs(&s) % 40; const char *op = ops[xs(&s) % 5];   /* draws right to left, in the order gcc on x86-64 made them */
+                  sprintf(sql, "%u %s machine AND temp > %u", m, op, v); break; }
         default: sprintf(sql, "machine = %u.5 OR machine = %u", m, m); break;
         }
         if (same_rows(sql, "m")) return 1;

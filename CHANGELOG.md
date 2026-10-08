@@ -22,6 +22,16 @@ unchanged from 0.3.0-alpha; file format version 3 is unchanged too.
   Linux x86-64, Linux ARM and macOS (`.github/workflows/test.yml`). A green
   run on `main` with a new version is what publishes a release; see
   [RELEASING.md](RELEASING.md).
+- **Tests give the same data on every compiler.** Some tests passed two or
+  three random draws as arguments to one call, and C leaves the order of
+  those unspecified: gcc on x86-64 drew them right to left, clang and gcc on
+  ARM left to right. The ARM builds made other test data, and with it one
+  statement in `test_savepoint` needed more savepoint room than its cache
+  allowed (a documented limit, so a failed transaction, as designed). Each
+  draw now has its own line, in gcc's x86-64 order, so every recorded result
+  stays valid: the outputs of all nine suites are byte for byte the same as
+  before under gcc, and the same under clang. `test_vs_sqlite`, which isn't
+  run in CI, keeps its old calls.
 - **The browser demo** in `demos/db/` is rebuilt at 0.4.0
   (`app/engine-db.v4.js`).
 - Releases now live on the GitHub release page. `releases/` keeps the

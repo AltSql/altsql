@@ -117,18 +117,27 @@ static int row_a(uint32_t *s, char *out, size_t n) {
     char sv[16], rl[40];
     txt(s, sv, "s", 31);
     lit_real(rl, sizeof rl, rreal(s));
-    return snprintf(out, n, "(%u, %u, %u, '%s', %u, %s)", xs(s) % 3000, xs(s) % 50, xs(s) % 10, sv, xs(s) % 20000, rl);
+    {
+        uint32_t u = xs(s) % 20000, k = xs(s) % 10, g = xs(s) % 50, id = xs(s) % 3000;   /* draws right to left, in the order gcc on x86-64 made them */
+        return snprintf(out, n, "(%u, %u, %u, '%s', %u, %s)", id, g, k, sv, u, rl);
+    }
 }
 static int row_b(uint32_t *s, char *out, size_t n) {
     char nm[16], rl[40];
     txt(s, nm, "n", 40);
     lit_real(rl, sizeof rl, rreal(s));
-    return snprintf(out, n, "('%s', %u, %s, %u)", nm, xs(s) % 60, rl, xs(s) % 30);
+    {
+        uint32_t y = xs(s) % 30, x = xs(s) % 60;                        /* draws right to left, in the order gcc on x86-64 made them */
+        return snprintf(out, n, "('%s', %u, %s, %u)", nm, x, rl, y);
+    }
 }
 static int row_c(uint32_t *s, char *out, size_t n) {
     char w[16];
     txt(s, w, "w", 50000);
-    return snprintf(out, n, "(%u, %u, '%s')", xs(s) % 100, xs(s) % 40, w);
+    {
+        uint32_t b = xs(s) % 40, a = xs(s) % 100;                       /* draws right to left, in the order gcc on x86-64 made them */
+        return snprintf(out, n, "(%u, %u, '%s')", a, b, w);
+    }
 }
 
 /* A WHERE for table t (0 a, 1 b, 2 c) that indexes may serve. */
@@ -328,10 +337,16 @@ static int step(uint32_t *s, int in_tx) {
         if (t == 0) {
             static const char *const sets[] = { "k = k + 1", "g = %u, s = 's%u'", "u = u + %u", "r = r * 2, k = %u", "s = 's%u'", "id = id + 3000" };
             unsigned j = xs(s) % 6;
-            snprintf(r1, sizeof r1, sets[j], xs(s) % 10, xs(s) % 31);
+            unsigned b = xs(s) % 31, a = xs(s) % 10;                     /* draws right to left, in the order gcc on x86-64 made them */
+            snprintf(r1, sizeof r1, sets[j], a, b);
             if (j == 5) snprintf(r1, sizeof r1, "id = id + %u", 3000 + xs(s) % 3000);
-        } else if (t == 1) snprintf(r1, sizeof r1, xs(s) % 2 ? "x = x + 1, y = %u" : "n = n + %u", xs(s) % 30);
-        else snprintf(r1, sizeof r1, xs(s) % 2 ? "v = %u" : "w = 'w%u'", xs(s) % 50000);
+        } else if (t == 1) {
+            unsigned v = xs(s) % 30, f = xs(s) % 2;                      /* draws right to left, in the order gcc on x86-64 made them */
+            snprintf(r1, sizeof r1, f ? "x = x + 1, y = %u" : "n = n + %u", v);
+        } else {
+            unsigned v = xs(s) % 50000, f = xs(s) % 2;                   /* draws right to left, in the order gcc on x86-64 made them */
+            snprintf(r1, sizeof r1, f ? "v = %u" : "w = 'w%u'", v);
+        }
         snprintf(sql, sizeof sql, "UPDATE %s SET %s WHERE %s", g_tab[t], r1, w);
         rc = altsql_db_exec(D, sql, NULL, NULL);
         CHECK(rc == ALTSQL_OK || rc == ALTSQL_EXISTS || rc == ALTSQL_SCHEMA || rc == ALTSQL_NOMEM, "%s: %d %s", sql, rc, altsql_db_errmsg(D));
@@ -346,14 +361,18 @@ static int step(uint32_t *s, int in_tx) {
         for (i = 0; i < 3; i++) { snprintf(r2, sizeof r2, "SELECT * FROM %s", g_tab[i]); CHECK(qh(r2, &before[i]) == ALTSQL_OK, "before"); }
         if (t == 0) {
             unsigned x = xs(s) % 3000;
-            snprintf(sql, sizeof sql, "INSERT OR REPLACE INTO a VALUES (%u, %u, 3, 'zz', %u, 1.0)", x, xs(s) % 50, 20000 + xs(s) % 10000);
+            unsigned u = 20000 + xs(s) % 10000, g = xs(s) % 50;          /* draws right to left, in the order gcc on x86-64 made them */
+            snprintf(sql, sizeof sql, "INSERT OR REPLACE INTO a VALUES (%u, %u, 3, 'zz', %u, 1.0)", x, g, u);
             rc = altsql_db_exec(D, sql, NULL, NULL);
             CHECK(rc == ALTSQL_OK || rc == ALTSQL_EXISTS, "%s: %d %s", sql, rc, altsql_db_errmsg(D));
             if (rc == ALTSQL_EXISTS) return 0;
             for (i = 0; i < 3; i++) { snprintf(r2, sizeof r2, "SELECT * FROM %s", g_tab[i]); CHECK(qh(r2, &before[i]) == ALTSQL_OK, "before"); }
             snprintf(sql, sizeof sql, "UPDATE a SET r = r + 1, s = 'gone', k = k / (id - %u) WHERE g = 3", x);
         } else if (t == 1) snprintf(sql, sizeof sql, "UPDATE b SET y = y + 1, n = n + 100, x = x / (n - n) WHERE y < %u", 1 + xs(s) % 30);
-        else snprintf(sql, sizeof sql, "INSERT INTO c VALUES (1, 1, 'fresh%u'), (2, 2, 'fresh%u'), (3, 3, %u)", xs(s), xs(s), xs(s));
+        else {
+            unsigned c3 = xs(s), c2 = xs(s), c1 = xs(s);                 /* draws right to left, in the order gcc on x86-64 made them */
+            snprintf(sql, sizeof sql, "INSERT INTO c VALUES (1, 1, 'fresh%u'), (2, 2, 'fresh%u'), (3, 3, %u)", c1, c2, c3);
+        }
         rc = altsql_db_exec(D, sql, NULL, NULL);
         if (rc == ALTSQL_OK) {                           /* no row to fail on: then it changed none */
             altsql_db_info inf;
@@ -543,7 +562,9 @@ static int synced(void) {
     for (k = 0; k < 6; k++) {
         for (i = 0; i < 3; i++) {
             for (j = 0; j < 300; j++) {
-                CHECK(altsql_append(d[i].db, "temps", (int64_t)d[i].t, (int)(xs(&s) % 12), (double)(xs(&s) % 4000) / 100.0) == ALTSQL_OK, "append");
+                double temp = (double)(xs(&s) % 4000) / 100.0;          /* draws right to left, in the order gcc on x86-64 made them */
+                int mach = (int)(xs(&s) % 12);
+                CHECK(altsql_append(d[i].db, "temps", (int64_t)d[i].t, mach, temp) == ALTSQL_OK, "append");
                 d[i].t += 1 + xs(&s) % 3;
             }
             if (dev_sync(&d[i], 100 + i)) return 1;

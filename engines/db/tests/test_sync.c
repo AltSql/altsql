@@ -50,7 +50,9 @@ static int dev_work(dev *d, uint32_t *s, int n) {
     for (i = 0; i < n; i++) {
         uint32_t r = xs(s) % 100;
         if (r < 70) {
-            CHECK(altsql_append(d->db, "temps", (int64_t)d->t, (int)(xs(s) % 8), (double)(xs(s) % 4000) / 100.0) == ALTSQL_OK,
+            double temp = (double)(xs(s) % 4000) / 100.0;               /* draws right to left, in the order gcc on x86-64 made them */
+            int mach = (int)(xs(s) % 8);
+            CHECK(altsql_append(d->db, "temps", (int64_t)d->t, mach, temp) == ALTSQL_OK,
                   "append: %s", altsql_errmsg(d->db));
             d->t += 1 + xs(s) % 3;
         } else if (r < 80) {

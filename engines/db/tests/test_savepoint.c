@@ -182,12 +182,21 @@ static int fail_all(uint32_t *s) {
 static int good(uint32_t *s) {
     char sql[256];
     int k = (int)(xs(s) % 7), a = (int)(xs(s) % (NROWS + 400));
-    if (k == 0) snprintf(sql, sizeof sql, "INSERT OR REPLACE INTO t VALUES (%d, %u, %u, 'r%u')", a, xs(s) % 50, xs(s) % 1000, xs(s) % 9999);
+    if (k == 0) {
+        uint32_t r = xs(s) % 9999, kk = xs(s) % 1000, v = xs(s) % 50;   /* draws right to left, in the order gcc on x86-64 made them */
+        snprintf(sql, sizeof sql, "INSERT OR REPLACE INTO t VALUES (%d, %u, %u, 'r%u')", a, v, kk, r);
+    }
     else if (k == 1) snprintf(sql, sizeof sql, "UPDATE t SET v = v + 1, k = k + 2 WHERE id BETWEEN %d AND %d", a, a + 60);
     else if (k == 2) snprintf(sql, sizeof sql, "DELETE FROM t WHERE id BETWEEN %d AND %d", a, a + 9);
     else if (k == 3) snprintf(sql, sizeof sql, "UPDATE t SET id = id + 100000 WHERE id BETWEEN %d AND %d", a, a + 2);
-    else if (k == 4) snprintf(sql, sizeof sql, "INSERT OR REPLACE INTO u VALUES ('k%u', %u, %u)", xs(s) % 8, xs(s) % 40, xs(s) % 100);
-    else if (k == 5) return put_w((int)(xs(s) % (WROWS + 30)), xs(s));
+    else if (k == 4) {
+        uint32_t w = xs(s) % 100, n = xs(s) % 40, nm = xs(s) % 8;      /* draws right to left, in the order gcc on x86-64 made them */
+        snprintf(sql, sizeof sql, "INSERT OR REPLACE INTO u VALUES ('k%u', %u, %u)", nm, n, w);
+    } else if (k == 5) {
+        uint32_t v = xs(s);
+        int id = (int)(xs(s) % (WROWS + 30));                           /* draws right to left, in the order gcc on x86-64 made them */
+        return put_w(id, v);
+    }
     else snprintf(sql, sizeof sql, "DELETE FROM w WHERE id = %u", xs(s) % WROWS);
     return both(sql);
 }
