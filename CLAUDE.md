@@ -5,6 +5,14 @@ never ask the owner to publish one. [RELEASING.md](RELEASING.md) has the
 whole procedure, the checks to run afterwards, and how to copy it to a new
 project.
 
+## In progress: independent review of AltSql Restore
+
+A reviewer that did not write the code is checking `engines/restore/` for
+real bugs: the SQLite, tar and gzip readers, partial restores reported as
+success, table enumeration, checksum determinism, injection, sandbox
+isolation and clean-up, the history file and report seals. Each bug gets a
+failing test first. A fixed bug means a 0.5.1 release.
+
 ## Done: AltSql Restore, released in 0.5.0 (31 October 2026)
 
 **What.** A new module, `engines/restore/`, one C99 program `altsql-restore`
