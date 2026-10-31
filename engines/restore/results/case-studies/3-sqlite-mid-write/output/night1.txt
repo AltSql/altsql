@@ -5,7 +5,7 @@ AltSql Restore report
 
 Job:            chinook-app
 Run:            1
-Date:           2026-10-31 11:18:21 UTC
+Date:           2026-10-31 11:53:14 UTC
 Backup:         backups/night1.db
 Backup size:    1,007,616 bytes
 Backup SHA-256: 7651ba378ac2fcd0dfc3c66fb101f7a7eed3ba39a612ec642b96e20702061f15
@@ -30,12 +30,13 @@ Track                    3,503                -            bce1fd91f24d664b
 
 Checks:
   - SQLite file: 246 pages of 4096 bytes, 11 tables, 12 indexes walked page by page, 0 free pages
+  - every index matches its table's rows, rowids rise, every page is used
 
 Verdict: PASSED
   The backup restored, and no table shrank past the threshold (first run: this is now the baseline).
 
 Webhook:        none set
 Signed off by:  app team
-Seal (SHA-256 of the lines above): ec2129464e75765f0caab6367285f0e40828c515658de61931970d7c31dcf6d6
+Seal (SHA-256 of the lines above): c155989455700d299b02889e821ae6847ba9f34718fc3dee35fb9a966264efed
 
 exit status: 0

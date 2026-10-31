@@ -5,13 +5,39 @@ never ask the owner to publish one. [RELEASING.md](RELEASING.md) has the
 whole procedure, the checks to run afterwards, and how to copy it to a new
 project.
 
-## In progress: independent review of AltSql Restore
+## Done: independent review of AltSql Restore, fixes in 0.5.1 (31 October 2026)
 
-A reviewer that did not write the code is checking `engines/restore/` for
-real bugs: the SQLite, tar and gzip readers, partial restores reported as
-success, table enumeration, checksum determinism, injection, sandbox
-isolation and clean-up, the history file and report seals. Each bug gets a
-failing test first. A fixed bug means a 0.5.1 release.
+A reviewer that didn't write the code went through `engines/restore/`. Five
+bugs were confirmed, each with a test that failed on 0.5.0, and fixed
+(CHANGELOG 0.5.1):
+- High: a plain dump's client commands (`\!`, `\o`, `\connect host=`,
+  mysql `system`/`source`/`tee`) ran on the host, as root, and the run
+  PASSED. psql now runs with `\restrict KEY` (random key) after
+  `pg_dump_commands()` rewrites the dump's own `\restrict`/`\connect`
+  lines; with an older psql that reader is the only guard. mysql runs with
+  `--binary-mode --local-infile=0`. Clients run as the server's user when
+  root.
+- High: a SQLite file copied mid-transaction PASSED (case study 3). The
+  reader now checks index entries against table rows (partial indexes: not
+  more), rising rowids, and that every page is used.
+- Medium: MariaDB `SYSTEM VERSIONED` tables weren't counted.
+- Medium: the webhook's files used predictable names in the work folder and
+  followed links; now a mkdtemp folder.
+- Low: the tar reader's pax parser read up to 5 bytes past its buffer.
+Found sound: the gzip inflater, the SQLite walker's bounds, tar paths (no
+links are made, `..` and absolute paths refused), shrink logic, exit codes,
+seals (the last "Seal (" line is checked; a plain SHA-256 seal can be
+recomputed by anyone, as the manual says), sandbox sockets (unix socket, no
+port), the watchdog's pid checks. `make fuzz` (30,000 damaged files under
+ASan/UBSan, `results/fuzz.log`): no crash after the pax fix.
+
+**Still open (not bugs in the promise, recorded in the manual):** the dump's
+SQL runs as superuser of the sandbox server and can reach the host through
+`COPY ... PROGRAM` or `INTO OUTFILE` as the server's user (Docker mode
+contains that); `pg_dump --clean` dumps and tables in tablespaces fail;
+no size limit on unpacked data (a gzip bomb fills the work folder before
+it fails); item names over 250 bytes are cut and could collide (archives
+only).
 
 ## Done: AltSql Restore case studies (31 October 2026)
 
@@ -27,8 +53,9 @@ of a write transaction (rollback journal, journal not copied) PASSED;
 `PRAGMA integrity_check` lists 100 missing index entries, and the invoice
 table walks to 469 rows where its index holds 412 (57 rows of an
 uncommitted transaction). The reader walks indexes but doesn't compare an
-index's entry count with its table's rows. See `3-sqlite-mid-write/`. Not
-fixed here; the site post says so.
+index's entry count with its table's rows. See `3-sqlite-mid-write/`.
+Fixed in 0.5.1: the copy now FAILS; the case study was rerun with 0.5.1 and
+the site post has a section saying so.
 
 ## Done: AltSql Restore, released in 0.5.0 (31 October 2026)
 
