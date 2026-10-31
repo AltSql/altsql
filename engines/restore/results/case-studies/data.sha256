@@ -1,0 +1,8 @@
+# Sourced by fetch.sh: get URL FILE SHA256. The files come from the master
+# branches of the two public sample-database projects; the SHA-256 pins the
+# exact bytes the recorded runs used, so a changed upstream file stops fetch.sh.
+get "$CHINOOK/Chinook_PostgreSql.sql" Chinook_PostgreSql.sql e3fde5c1a5b51a2a91429a702c9ca6e69ba56e6c7f5e112724d70c3d03db695e
+get "$CHINOOK/Chinook_MySql.sql"      Chinook_MySql.sql      68768623bac1fe6f92c317235735c706a54a28cc76ab175c194e99f994dadbd6
+get "$CHINOOK/Chinook_Sqlite.sqlite"  Chinook_Sqlite.sqlite  7651ba378ac2fcd0dfc3c66fb101f7a7eed3ba39a612ec642b96e20702061f15
+get "$PAGILA/pagila-schema.sql"       pagila-schema.sql      071ee940a73c8f4fad2997185788065291607e2c55559e3747959e8275391536
+get "$PAGILA/pagila-data.sql"         pagila-data.sql        a88efa94c7ae8bc9cf55def4efc9f164d064d5b9cd93f11719ba3b5ace1602f7

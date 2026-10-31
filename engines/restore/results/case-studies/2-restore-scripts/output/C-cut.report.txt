@@ -1,0 +1,21 @@
+AltSql Restore report
+=====================
+
+Job:            chinook-pg
+Run:            3
+Date:           2026-10-31 11:18:09 UTC
+Backup:         backups/chinook-cut.sql.gz
+Backup size:    88,668 bytes
+Backup SHA-256: 111fd99cf9fb2b78f9ae73c1bc215783cfaad20fe2f3920741d7cdd157f698fa
+Kind:           PostgreSQL plain dump (gzip)
+Restored with:  -
+Restore time:   0.0 s
+Threshold:      alert when an item loses more than 10% of its rows
+Compared with:  run 1 of 2026-10-31 11:17:58 UTC (PASSED)
+
+Verdict: FAILED
+  - the restore failed: chinook-cut.sql.gz: the gzip data ends early (truncated)
+
+Webhook:        none set
+Signed off by:  (no signer given)
+Seal (SHA-256 of the lines above): 6d287db65430bf34ca1d950fd31226a304f8ae4999242fda069a5fe77391a6e3

@@ -1,0 +1,2 @@
+job                    run  date (UTC)            verdict       kind      report seal       backup
+shop-db-elsewhere        1  2026-10-31 11:18:34   NOT VERIFIED  postgres  e5ad1425ca57a230  shop-latest.sql.gz

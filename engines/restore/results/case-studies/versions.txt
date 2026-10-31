@@ -1,0 +1,9 @@
+release:        v0.5.0 (altsql_linux_amd64.tar.gz)
+release SHA-256: 3efcd714e79d7748cf0a8e62dffe8fbc889714ff009280fbab3e68dcedbe753d
+altsql-restore SHA-256: 1e075257135899ac679268606aad3f614dc63357dee78506a457273ccdc095ba
+fetched:        2026-10-31 11:17 UTC
+68768623bac1fe6f92c317235735c706a54a28cc76ab175c194e99f994dadbd6  Chinook_MySql.sql
+e3fde5c1a5b51a2a91429a702c9ca6e69ba56e6c7f5e112724d70c3d03db695e  Chinook_PostgreSql.sql
+7651ba378ac2fcd0dfc3c66fb101f7a7eed3ba39a612ec642b96e20702061f15  Chinook_Sqlite.sqlite
+a88efa94c7ae8bc9cf55def4efc9f164d064d5b9cd93f11719ba3b5ace1602f7  pagila-data.sql
+071ee940a73c8f4fad2997185788065291607e2c55559e3747959e8275391536  pagila-schema.sql

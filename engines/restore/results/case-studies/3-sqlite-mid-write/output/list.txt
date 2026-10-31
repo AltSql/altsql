@@ -1,0 +1,4 @@
+job                    run  date (UTC)            verdict       kind      report seal       backup
+chinook-app              1  2026-10-31 11:18:21   PASSED        sqlite    ec2129464e75765f  night1.db
+chinook-app              2  2026-10-31 11:18:22   PASSED        sqlite    09d5dd5d50ee6254  night2.db
+chinook-app              3  2026-10-31 11:18:24   PASSED        sqlite    cb2a926ff8acda27  night3.db

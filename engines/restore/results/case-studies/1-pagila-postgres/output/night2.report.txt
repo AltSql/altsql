@@ -1,0 +1,21 @@
+AltSql Restore report
+=====================
+
+Job:            pagila
+Run:            2
+Date:           2026-10-31 11:17:19 UTC
+Backup:         upload/pagila-night2.sql.gz
+Backup size:    2,655,042 bytes
+Backup SHA-256: 013f0cc11fcc9e3b1095bf64fb4b687e3db86aa59cb6d963fde84ea54d8f46e5
+Kind:           PostgreSQL plain dump (gzip)
+Restored with:  -
+Restore time:   0.2 s
+Threshold:      alert when an item loses more than 10% of its rows
+Compared with:  run 1 of 2026-10-31 11:17:14 UTC (PASSED)
+
+Verdict: FAILED
+  - the restore failed: pagila-night2.sql.gz: the gzip data ends early (truncated)
+
+Webhook:        none set
+Signed off by:  dba on call
+Seal (SHA-256 of the lines above): f35c04be6e742700ac75f960f0c7a266159ade92b0388d71fcafbd006519b4cb

@@ -1,0 +1,2 @@
+POST /backups  Content-Type: application/json
+{"tool":"altsql-restore","version":"0.5.0","job":"music-hook","run":2,"date":"2026-10-31 11:18:34 UTC","verdict":"ALERT","backup":"backups/night2.db","backup_sha256":"a87a98836076fdde07377a002505050122ec98c87d8f66112640ab3be7858531","reasons":["InvoiceLine shrank from 2,240 to 2,151 rows (-4.0%), more than the 2% allowed"],"items":11}

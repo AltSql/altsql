@@ -1,0 +1,37 @@
+AltSql Restore report
+=====================
+
+Job:            music-strict
+Run:            1
+Date:           2026-10-31 11:18:33 UTC
+Backup:         backups/night1.db
+Backup size:    1,007,616 bytes
+Backup SHA-256: 7651ba378ac2fcd0dfc3c66fb101f7a7eed3ba39a612ec642b96e20702061f15
+Kind:           SQLite database file
+Restored with:  built-in SQLite file reader (no outside software)
+Restore time:   0.0 s
+Threshold:      alert when an item loses more than 2% of its rows
+Compared with:  nothing: the first verified run of this job
+
+Table                     rows         previous    change  checksum          
+Album                      347                -            6452983177317d56  
+Artist                     275                -            cc23a48b40cc08dc  
+Customer                    59                -            6823f24b63abbe3b  
+Employee                     8                -            ce502ddf90566ca8  
+Genre                       25                -            0a8bf25dcada2e98  
+Invoice                    412                -            20d43c3790a0fca2  
+InvoiceLine              2,240                -            9042be6c68ebb613  
+MediaType                    5                -            be42741e6a5bf335  
+Playlist                    18                -            8f2965ee90923015  
+PlaylistTrack            8,715                -            5ea6d36da02bc20b  
+Track                    3,503                -            bce1fd91f24d664b  
+
+Checks:
+  - SQLite file: 246 pages of 4096 bytes, 11 tables, 12 indexes walked page by page, 0 free pages
+
+Verdict: PASSED
+  The backup restored, and no table shrank past the threshold (first run: this is now the baseline).
+
+Webhook:        none set
+Signed off by:  (no signer given)
+Seal (SHA-256 of the lines above): df593db09b21d81610872bda27711dbdad77d5230edee5256a2e78b97eeb1b1c

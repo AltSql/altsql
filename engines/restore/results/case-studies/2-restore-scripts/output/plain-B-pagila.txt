@@ -1,0 +1,25 @@
+$ psql -X -q -d plaincheck -f backups/pagila-upstream.sql
+exit status: 0
+error lines: 323
+first error lines:
+psql:backups/pagila-upstream.sql:284: ERROR:  function uuidv7() does not exist
+psql:backups/pagila-upstream.sql:287: ERROR:  relation "public.customer" does not exist
+psql:backups/pagila-upstream.sql:348: ERROR:  type "public.customer" does not exist
+psql:backups/pagila-upstream.sql:351: ERROR:  function public.rewards_report(integer, numeric) does not exist
+psql:backups/pagila-upstream.sql:454: ERROR:  syntax error at or near "VIRTUAL"
+other messages:
+ set_config 
+------------
+(1 row)
+tables afterwards (rows):
+  public.actor 200
+  public.address 1003
+  public.category 16
+  public.city 600
+  public.country 109
+  public.film_actor 5462
+  public.film_category 2367
+  public.inventory 4581
+  public.language 6
+  public.staff 1500
+  public.store 500

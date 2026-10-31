@@ -1,0 +1,37 @@
+AltSql Restore report
+=====================
+
+Job:            music-hook
+Run:            2
+Date:           2026-10-31 11:18:34 UTC
+Backup:         backups/night2.db
+Backup size:    1,007,616 bytes
+Backup SHA-256: a87a98836076fdde07377a002505050122ec98c87d8f66112640ab3be7858531
+Kind:           SQLite database file
+Restored with:  built-in SQLite file reader (no outside software)
+Restore time:   0.0 s
+Threshold:      alert when an item loses more than 2% of its rows
+Compared with:  run 1 of 2026-10-31 11:18:34 UTC (PASSED)
+
+Table                     rows         previous    change  checksum          
+Album                      347              347     +0.0%  6452983177317d56  same
+Artist                     275              275     +0.0%  cc23a48b40cc08dc  same
+Customer                    59               59     +0.0%  6823f24b63abbe3b  same
+Employee                     8                8     +0.0%  ce502ddf90566ca8  same
+Genre                       25               25     +0.0%  0a8bf25dcada2e98  same
+Invoice                    412              412     +0.0%  20d43c3790a0fca2  same
+InvoiceLine              2,151            2,240     -4.0%  21ff067cc501bfab  changed
+MediaType                    5                5     +0.0%  be42741e6a5bf335  same
+Playlist                    18               18     +0.0%  8f2965ee90923015  same
+PlaylistTrack            8,715            8,715     +0.0%  5ea6d36da02bc20b  same
+Track                    3,503            3,503     +0.0%  bce1fd91f24d664b  same
+
+Checks:
+  - SQLite file: 246 pages of 4096 bytes, 11 tables, 12 indexes walked page by page, 0 free pages
+
+Verdict: ALERT
+  - InvoiceLine shrank from 2,240 to 2,151 rows (-4.0%), more than the 2% allowed
+
+Webhook:        sent to http://127.0.0.1:18765/backups
+Signed off by:  (no signer given)
+Seal (SHA-256 of the lines above): eeaa7b92850cf464e1a327a0969afa63fa7376f451f742bd68450125cbcc501d

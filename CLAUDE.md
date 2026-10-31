@@ -18,19 +18,28 @@ failing test first. A fixed bug means a 0.5.1 release.
 Case studies and use examples for altsql.com, from real runs of the
 released binary (releases/latest, checksum-checked). Only new files under
 `engines/restore/results/case-studies/`; the module's code is not touched.
+Rerun everything with `sudo sh engines/restore/results/case-studies/run_all.sh`.
 
-- [ ] Download the release binary, check its SHA-256.
-- [ ] Public sample databases: Pagila (PostgreSQL), Chinook (MariaDB,
-      PostgreSQL, SQLite), dumped here with pg_dump 16, mariadb-dump,
-      sqlite3. Local PostgreSQL 16 and MariaDB 10.11 (no Docker).
-- [ ] Scenarios: a verified night, an upload cut short, a table that lost
-      most of its rows, a SQLite file copied mid-write, a dump that restores
-      with errors a plain restore script ignores.
-- [ ] Use-example recipes, each run: cron line, --max-shrink, history with
-      altsql-db, --sign-key and --verify-report, webhook, NOT VERIFIED.
-- [ ] One `run.sh` per case study plus recorded outputs and reports.
-- [ ] Site: case study posts, a use examples post, links from the Restore
-      post and the modules page.
+- [x] Release v0.5.0 downloaded, SHA-256 checked (`fetch.sh`, `versions.txt`).
+- [x] Pagila (PostgreSQL) and Chinook (PostgreSQL, MariaDB, SQLite), pinned
+      by SHA-256; local PostgreSQL 16.15 and MariaDB 10.11.14, no Docker.
+- [x] 1-pagila-postgres: verified, upload cut short (FAILED), archiving job
+      with the wrong year (ALERT, rental -71.7% and 36 partitions emptied),
+      alert repeats, rows put back (PASSED).
+- [x] 2-restore-scripts: Latin-1 copy of a dump, upstream Pagila on PG 16,
+      gunzip | psql of a cut file: psql exits 0 each time; Restore FAILED.
+- [x] 3-sqlite-mid-write: cp during a transaction PASSED (see below).
+- [x] 4-use-examples: cron, --max-shrink, --accept, altsql-db history,
+      --sign-key/--verify-report, webhook, NOT VERIFIED.
+- [ ] Site: case study posts, a use examples post, links.
+
+**Found during case studies:** a SQLite file copied with cp in the middle
+of a write transaction (rollback journal, the journal not copied) PASSED;
+`PRAGMA integrity_check` lists 100 index entries missing and SQLite counts
+412 invoices where Restore's table walk counts 469 (rows of an uncommitted
+transaction). The reader walks indexes but doesn't compare an index's entry
+count with its table's row count. Recorded in
+`results/case-studies/3-sqlite-mid-write/`. Not fixed here.
 
 ## Done: AltSql Restore, released in 0.5.0 (31 October 2026)
 

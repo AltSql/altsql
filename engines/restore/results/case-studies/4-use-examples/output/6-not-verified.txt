@@ -1,0 +1,27 @@
+$ altsql-restore --job shop-db-elsewhere --history restore.db --engine-path empty --docker /nonexistent/docker backups/shop-latest.sql.gz
+
+AltSql Restore report
+=====================
+
+Job:            shop-db-elsewhere
+Run:            1
+Date:           2026-10-31 11:18:34 UTC
+Backup:         backups/shop-latest.sql.gz
+Backup size:    147,767 bytes
+Backup SHA-256: 65ef3ff1e806e5659facbf5a67b404e5fe89ace047c5a612314bd2fb5f040501
+Kind:           PostgreSQL plain dump (gzip)
+Restored with:  nothing: no engine available
+Restore time:   0.0 s
+Threshold:      alert when an item loses more than 10% of its rows
+Compared with:  nothing: the first verified run of this job
+
+Verdict: NOT VERIFIED
+  This backup was NOT restored, so it is not verified: no engine could run it here.
+  - local PostgreSQL: no local PostgreSQL server programs (initdb and postgres) were found
+  - Docker PostgreSQL: Docker was not found (/nonexistent/docker)
+
+Webhook:        none set
+Signed off by:  (no signer given)
+Seal (SHA-256 of the lines above): e5ad1425ca57a230f5ffe1cb6efd04053d17eeb1ebc2b8f2ae20778d8d44d521
+
+exit status: 3

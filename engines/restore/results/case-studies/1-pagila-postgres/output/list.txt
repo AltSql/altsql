@@ -1,0 +1,6 @@
+job                    run  date (UTC)            verdict       kind      report seal       backup
+pagila                   1  2026-10-31 11:17:14   PASSED        postgres  67aa296f7daa2946  pagila-night1.sql.gz
+pagila                   2  2026-10-31 11:17:19   FAILED        postgres  f35c04be6e742700  pagila-night2.sql.gz
+pagila                   3  2026-10-31 11:17:34   ALERT         postgres  fc995402848f1ba9  pagila-night3.sql.gz
+pagila                   4  2026-10-31 11:17:38   ALERT         postgres  de00e58dd8cd6ead  pagila-night4.sql.gz
+pagila                   5  2026-10-31 11:17:44   PASSED        postgres  68e7367048dd332d  pagila-night5.sql.gz

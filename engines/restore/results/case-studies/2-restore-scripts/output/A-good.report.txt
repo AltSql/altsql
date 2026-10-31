@@ -1,0 +1,37 @@
+AltSql Restore report
+=====================
+
+Job:            chinook-pg
+Run:            1
+Date:           2026-10-31 11:17:58 UTC
+Backup:         backups/chinook.sql
+Backup size:    417,461 bytes
+Backup SHA-256: e64b92c2dff5c9fbc5d99f7455794d617e962ffea7b9b8a888aa90b6c0a24c9e
+Kind:           PostgreSQL plain dump
+Restored with:  local PostgreSQL server: postgres (PostgreSQL) 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1) (/usr/lib/postgresql/16/bin/postgres)
+Restore time:   2.6 s
+Threshold:      alert when an item loses more than 10% of its rows
+Compared with:  nothing: the first verified run of this job
+
+Table                             rows         previous    change  checksum          
+public.album                       347                -            963c84f404c67787  
+public.artist                      275                -            7453cbc8b5d81494  
+public.customer                     59                -            c7e74132c0a11276  
+public.employee                      8                -            bb67c6546681972d  
+public.genre                        25                -            2f041caa1aa4b64b  
+public.invoice                     412                -            ea0e716d72119f48  
+public.invoice_line              2,240                -            6db0682350431875  
+public.media_type                    5                -            8b8a3117b7af7eb8  
+public.playlist                     18                -            265b84af90e2d022  
+public.playlist_track            8,715                -            e50db39bf8b6d3ad  
+public.track                     3,503                -            130fc7f05be33ed2  
+
+Checks:
+  - made 1 role the dump hands objects to
+
+Verdict: PASSED
+  The backup restored, and no table shrank past the threshold (first run: this is now the baseline).
+
+Webhook:        none set
+Signed off by:  (no signer given)
+Seal (SHA-256 of the lines above): 06a0e0a3e146d19b7fe2667fa38c54e1a5393242fa77f9b9067b3f0e5d9db3ac

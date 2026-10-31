@@ -1,0 +1,24 @@
+$ altsql-db restore-strict.db "SELECT job, run, verdict, backup FROM runs WHERE verdict <> 'PASSED';"
+job|run|verdict|backup
+music-strict|2|ALERT|night2.db
+music-strict|3|ACCEPTED|night2.db
+
+$ altsql-db restore-strict.db "SELECT run, rows FROM counts WHERE job = 'music-strict' AND item = 'InvoiceLine';"
+run|rows
+1|2240
+2|2151
+3|2151
+4|2151
+
+$ altsql-db restore-strict.db "SELECT verdict, count(*) FROM runs GROUP BY verdict;"
+verdict|count(*)
+PASSED|2
+ALERT|1
+ACCEPTED|1
+
+$ altsql-restore --list --history restore-strict.db
+job                    run  date (UTC)            verdict       kind      report seal       backup
+music-strict             1  2026-10-31 11:18:33   PASSED        sqlite    df593db09b21d816  night1.db
+music-strict             2  2026-10-31 11:18:33   ALERT         sqlite    17087bc342e4359c  night2.db
+music-strict             3  2026-10-31 11:18:33   ACCEPTED      sqlite    1b90fd7522b1e541  night2.db
+music-strict             4  2026-10-31 11:18:33   PASSED        sqlite    1e734b3e1ecf0acc  night2.db

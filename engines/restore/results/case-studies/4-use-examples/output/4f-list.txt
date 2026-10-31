@@ -1,0 +1,4 @@
+$ altsql-restore --list --history restore-audit.db
+job                    run  date (UTC)            verdict       kind      report seal       backup
+music-audit              1  2026-10-31 11:18:33   PASSED        sqlite    7397712c68aea36c  night1.db
+exit status: 0

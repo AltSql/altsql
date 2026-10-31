@@ -1,0 +1,4 @@
+$ altsql-restore -q --job music-hook --history restore.db --max-shrink 2 backups/night1.db
+
+
+exit status: 0

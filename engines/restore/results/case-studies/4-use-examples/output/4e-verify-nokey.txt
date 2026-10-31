@@ -1,0 +1,3 @@
+$ altsql-restore --verify-report reports/audit-night1.txt
+reports/audit-night1.txt: the seal does NOT match; the report was changed (or it was sealed with a key: give --sign-key)
+exit status: 1

@@ -1,0 +1,1 @@
+2: InvoiceLine after the delete: 2151 rows

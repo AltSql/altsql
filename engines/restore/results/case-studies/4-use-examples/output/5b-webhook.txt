@@ -1,0 +1,4 @@
+$ altsql-restore -q --job music-hook --history restore.db --max-shrink 2 --webhook http://127.0.0.1:18765/backups backups/night2.db
+
+
+exit status: 1

@@ -1,0 +1,4 @@
+$ altsql-restore -q --job shop-db --history restore.db --report-dir reports --signer 'backup host' backups/shop-latest.sql.gz
+
+
+exit status: 0

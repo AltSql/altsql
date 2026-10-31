@@ -1,0 +1,41 @@
+$ altsql-restore --job chinook-app --history history.db --signer 'app team' backups/night3.db
+
+AltSql Restore report
+=====================
+
+Job:            chinook-app
+Run:            3
+Date:           2026-10-31 11:18:24 UTC
+Backup:         backups/night3.db
+Backup size:    3,190,784 bytes
+Backup SHA-256: 51d7435611e9f40064346a623de93808fdcf88c55e7ae26ac5c101bfa25748ac
+Kind:           SQLite database file
+Restored with:  built-in SQLite file reader (no outside software)
+Restore time:   0.1 s
+Threshold:      alert when an item loses more than 10% of its rows
+Compared with:  run 2 of 2026-10-31 11:18:22 UTC (PASSED)
+
+Table                     rows         previous    change  checksum          
+Album                      347              347     +0.0%  6452983177317d56  same
+Artist                     275              275     +0.0%  cc23a48b40cc08dc  same
+Customer                    59               59     +0.0%  6823f24b63abbe3b  same
+Employee                     8                8     +0.0%  ce502ddf90566ca8  same
+Genre                       25               25     +0.0%  0a8bf25dcada2e98  same
+Invoice                 20,412              469  +4252.2%  2b50db7604bf9549  changed
+InvoiceLine             22,240            2,337   +851.6%  f61b62dea209f282  changed
+MediaType                    5                5     +0.0%  be42741e6a5bf335  same
+Playlist                    18               18     +0.0%  8f2965ee90923015  same
+PlaylistTrack            8,715            8,715     +0.0%  5ea6d36da02bc20b  same
+Track                    3,503            3,503     +0.0%  bce1fd91f24d664b  same
+
+Checks:
+  - SQLite file: 779 pages of 4096 bytes, 11 tables, 12 indexes walked page by page, 0 free pages
+
+Verdict: PASSED
+  The backup restored, and no table shrank past the threshold.
+
+Webhook:        none set
+Signed off by:  app team
+Seal (SHA-256 of the lines above): cb2a926ff8acda27dcb60d14d477c3f60de4f71df1f5038346b593dff30107f1
+
+exit status: 0

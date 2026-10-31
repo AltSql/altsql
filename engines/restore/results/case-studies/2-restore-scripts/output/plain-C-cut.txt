@@ -1,0 +1,21 @@
+$ gunzip -c backups/chinook-cut.sql.gz | psql -X -q -d plaincheck
+exit status: 0
+error lines: 1
+first error lines:
+ERROR:  missing data for column "unit_price"
+other messages:
+ set_config 
+------------
+(1 row)
+tables afterwards (rows):
+  public.album 347
+  public.artist 275
+  public.customer 59
+  public.employee 8
+  public.genre 25
+  public.invoice 412
+  public.invoice_line 2240
+  public.media_type 5
+  public.playlist 18
+  public.playlist_track 8715
+  public.track 0

@@ -1,0 +1,24 @@
+AltSql Restore report
+=====================
+
+Job:            pagila-upstream
+Run:            1
+Date:           2026-10-31 11:18:05 UTC
+Backup:         backups/pagila-upstream.sql
+Backup size:    13,163,947 bytes
+Backup SHA-256: c3e7495a7207faae00150124adf8887deaf724f80aa903178146d37c9efc65be
+Kind:           PostgreSQL plain dump
+Restored with:  local PostgreSQL server: postgres (PostgreSQL) 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1) (/usr/lib/postgresql/16/bin/postgres)
+Restore time:   2.7 s
+Threshold:      alert when an item loses more than 10% of its rows
+Compared with:  nothing: the first verified run of this job
+
+Checks:
+  - made 1 role the dump hands objects to
+
+Verdict: FAILED
+  - the restore failed: psql stopped with an error (exit 3): psql:/tmp/altsql-restore-19067-ALOKdJ/dump:284: ERROR:  function uuidv7() does not exist | LINE 12:     uuid uuid DEFAULT uuidv7() NOT NULL |                                ^ | HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
+
+Webhook:        none set
+Signed off by:  (no signer given)
+Seal (SHA-256 of the lines above): d5faa03dac0e44e4752202ac5dc549f0e46406f78d1b8fb0176331d76a9d92f8

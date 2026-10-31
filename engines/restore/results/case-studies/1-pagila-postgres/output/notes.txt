@@ -1,0 +1,4 @@
+night 1: production rental|51805 payment|51061 
+night 2: production rental|52055 payment|51061 ; dump 4425071 bytes, uploaded copy 2655042 bytes
+night 3: production rental|14635 payment|14197 
+night 5: production rental|52055 payment|51061 

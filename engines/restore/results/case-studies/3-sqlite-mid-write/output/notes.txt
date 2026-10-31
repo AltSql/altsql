@@ -1,0 +1,1 @@
+night 3: sqlite3 .backup returned after 2 s, once the import had committed

@@ -1,0 +1,13 @@
+$ sqlite3 backups/night2.db 'PRAGMA integrity_check'
+row 413 missing from index IFK_InvoiceCustomerId
+row 414 missing from index IFK_InvoiceCustomerId
+row 415 missing from index IFK_InvoiceCustomerId
+row 416 missing from index IFK_InvoiceCustomerId
+row 417 missing from index IFK_InvoiceCustomerId
+row 418 missing from index IFK_InvoiceCustomerId
+row 419 missing from index IFK_InvoiceCustomerId
+row 420 missing from index IFK_InvoiceCustomerId
+(lines in full: 100)
+$ sqlite3 backups/night2.db 'SELECT count(*) FROM Invoice; SELECT count(*) FROM InvoiceLine'
+412
+2155

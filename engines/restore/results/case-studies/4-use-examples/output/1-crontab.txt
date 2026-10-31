@@ -1,0 +1,2 @@
+# m  h  dom mon dow  command   (backup host; the dump lands by 02:30)
+15 3  *   *   *    /usr/local/bin/altsql-restore -q --job shop-db --history /var/lib/altsql/restore.db --report-dir /var/log/altsql-restore --signer "backup host" /backups/shop-latest.sql.gz || logger -t altsql-restore "shop-db backup check exit $?"

@@ -1,0 +1,4 @@
+$ altsql-restore -q --job music-audit --history restore-audit.db --signer 'ops on call' --sign-key etc/audit.key --report reports/audit-night1.txt backups/night1.db
+
+
+exit status: 0

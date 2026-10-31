@@ -1,0 +1,7 @@
+job                    run  date (UTC)            verdict       kind      report seal       backup
+chinook-my               1  2026-10-31 11:18:13   PASSED        mysql     6241c67af3891449  chinook-my.sql
+chinook-my               2  2026-10-31 11:18:16   FAILED        mysql     2aa668edb322609c  chinook-my-latin1.sql
+chinook-pg               1  2026-10-31 11:17:58   PASSED        postgres  06a0e0a3e146d19b  chinook.sql
+chinook-pg               2  2026-10-31 11:18:01   FAILED        postgres  8ff676d5464f6c9f  chinook-latin1.sql
+chinook-pg               3  2026-10-31 11:18:09   FAILED        postgres  6d287db65430bf34  chinook-cut.sql.gz
+pagila-upstream          1  2026-10-31 11:18:05   FAILED        postgres  d5faa03dac0e44e4  pagila-upstream.sql

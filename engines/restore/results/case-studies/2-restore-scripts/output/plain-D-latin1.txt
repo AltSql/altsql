@@ -1,0 +1,13 @@
+$ mariadb < backups/chinook-my-latin1.sql
+exit status: 1
+ERROR at line 3657: Unknown command '\''.
+tables afterwards (rows):
+  Chinook.Album 347
+  Chinook.Artist 275
+  Chinook.Customer 59
+  Chinook.Employee 8
+  Chinook.Genre 25
+  Chinook.Invoice 412
+  Chinook.InvoiceLine 2240
+  Chinook.MediaType 5
+  Chinook.Playlist 0

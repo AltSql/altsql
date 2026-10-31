@@ -1,0 +1,38 @@
+$ altsql-restore --job chinook-my --history history.db backups/chinook-my.sql
+
+AltSql Restore report
+=====================
+
+Job:            chinook-my
+Run:            1
+Date:           2026-10-31 11:18:13 UTC
+Backup:         backups/chinook-my.sql
+Backup size:    486,894 bytes
+Backup SHA-256: eddea1da8448fe92db3c09f3f5b1fbaf729656e944ef4cc288feaf7e43d9dad3
+Kind:           MySQL dump
+Restored with:  local MariaDB server: /usr/sbin/mariadbd  Ver 10.11.14-MariaDB-0ubuntu0.24.04.1 for debian-linux-gnu on x86_64 (Ubuntu 24.04) (/usr/sbin/mariadbd)
+Restore time:   2.8 s
+Threshold:      alert when an item loses more than 10% of its rows
+Compared with:  nothing: the first verified run of this job
+
+Table                             rows         previous    change  checksum          
+Chinook.Album                      347                -            1477bd61ab30d875  
+Chinook.Artist                     275                -            fc22f71528893813  
+Chinook.Customer                    59                -            e216860fe0de3154  
+Chinook.Employee                     8                -            d223fef224d9f41e  
+Chinook.Genre                       25                -            8a3798eedaa78174  
+Chinook.Invoice                    412                -            09d387e11bfbaf43  
+Chinook.InvoiceLine              2,240                -            9a962fae3f456365  
+Chinook.MediaType                    5                -            a5bfcd5fe4d59020  
+Chinook.Playlist                    18                -            11f7831a7bb15ca3  
+Chinook.PlaylistTrack            8,715                -            cd2e2de93ae312f5  
+Chinook.Track                    3,503                -            7764401f31b7b64a  
+
+Verdict: PASSED
+  The backup restored, and no table shrank past the threshold (first run: this is now the baseline).
+
+Webhook:        none set
+Signed off by:  (no signer given)
+Seal (SHA-256 of the lines above): 6241c67af3891449ecf71743c5f772ca018fa5a55cf7f6cc363c977a74fee71e
+
+exit status: 0

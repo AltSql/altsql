@@ -1,0 +1,6 @@
+$ sqlite3 backups/night3.db 'PRAGMA integrity_check'
+ok
+(lines in full: 1)
+$ sqlite3 backups/night3.db 'SELECT count(*) FROM Invoice; SELECT count(*) FROM InvoiceLine'
+20412
+22240

@@ -1,0 +1,99 @@
+$ altsql-restore --job pagila --history history.db --signer 'dba on call' backups/pagila-night1.sql.gz
+
+AltSql Restore report
+=====================
+
+Job:            pagila
+Run:            1
+Date:           2026-10-31 11:17:14 UTC
+Backup:         backups/pagila-night1.sql.gz
+Backup size:    4,416,231 bytes
+Backup SHA-256: 419f02c89481f345ca73cd613ce46104d22df331b5ded10f860b2a900a477061
+Kind:           PostgreSQL plain dump (gzip)
+Restored with:  local PostgreSQL server: postgres (PostgreSQL) 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1) (/usr/lib/postgresql/16/bin/postgres)
+Restore time:   3.7 s
+Threshold:      alert when an item loses more than 10% of its rows
+Compared with:  nothing: the first verified run of this job
+
+Table                               rows         previous    change  checksum          
+public.actor                         200                -            e871f3bbc989f34a  
+public.address                     1,003                -            7354b1d7f6f2e2c0  
+public.category                       16                -            1843eca37a869acb  
+public.city                          600                -            9cfe96cd11ebe996  
+public.country                       109                -            bcc07601507cbf02  
+public.customer                      999                -            ef27e563d645862b  
+public.film                        1,000                -            ec80040248efffbc  
+public.film_actor                  5,462                -            e330b0c6591c25ba  
+public.film_category               2,367                -            9e2193dedd48fa4d  
+public.inventory                   4,581                -            b22bf979c3bb6335  
+public.language                        6                -            459a8ce7faf6cd74  
+public.payment_p2022_01              723                -            f4611c2beefb3188  
+public.payment_p2022_02            2,401                -            f2d9f6df84fc3ffa  
+public.payment_p2022_03            2,713                -            f142854804db0b79  
+public.payment_p2022_04            2,547                -            1895996c39b220c6  
+public.payment_p2022_05            2,677                -            29135110b1658bda  
+public.payment_p2022_06            2,654                -            4f52571a55261216  
+public.payment_p2022_07            2,334                -            8cce7c31bdb313db  
+public.payment_p2022_08               83                -            e532e259b442edcb  
+public.payment_p2022_09              718                -            7fe02cc9304427c0  
+public.payment_p2022_10              694                -            bd429c72366cee2e  
+public.payment_p2022_11              736                -            0a40d347aa561179  
+public.payment_p2022_12              790                -            ba9983796d7b350a  
+public.payment_p2023_01              722                -            dbf25a9f84d822f2  
+public.payment_p2023_02              704                -            e839bbd7ef264467  
+public.payment_p2023_03              720                -            95bac72eb478fed9  
+public.payment_p2023_04              726                -            dffb0322fde0223c  
+public.payment_p2023_05              753                -            bf4da2b83407779b  
+public.payment_p2023_06              714                -            be8524c210a732a6  
+public.payment_p2023_07              733                -            899e90406b44489e  
+public.payment_p2023_08              756                -            4325dd0582c149ca  
+public.payment_p2023_09              732                -            d5ffcec133247f15  
+public.payment_p2023_10              782                -            5b778da1691c6876  
+public.payment_p2023_11              723                -            88b2075f3df5f915  
+public.payment_p2023_12              804                -            aba7a60a4678234e  
+public.payment_p2024_01              750                -            6f56bc7427483d72  
+public.payment_p2024_02              771                -            8b128137a3b42878  
+public.payment_p2024_03              770                -            8fbda2fe243ba06e  
+public.payment_p2024_04              745                -            f93e28d1f94e01c2  
+public.payment_p2024_05              782                -            3f164a4dfd8462e3  
+public.payment_p2024_06              775                -            7a41e7ceaa68d460  
+public.payment_p2024_07              738                -            be432087aa112b95  
+public.payment_p2024_08              735                -            4fe4be82e0230493  
+public.payment_p2024_09              613                -            93543f8bcc378c36  
+public.payment_p2024_10              774                -            460564cb548fbb00  
+public.payment_p2024_11              762                -            28c4f997f41c59c1  
+public.payment_p2024_12              710                -            c8a8cb55679be900  
+public.payment_p2025_01              747                -            6dcb81eccb295e5d  
+public.payment_p2025_02              653                -            266e64a1c8d86edb  
+public.payment_p2025_03              751                -            03a853f02a2df3f7  
+public.payment_p2025_04              722                -            62263d48236d552d  
+public.payment_p2025_05              798                -            66823daf546765b2  
+public.payment_p2025_06              752                -            7c400de38faf842c  
+public.payment_p2025_07              802                -            5f6dd935000e592b  
+public.payment_p2025_08              805                -            6b62a30949b3a861  
+public.payment_p2025_09              693                -            c3ce3a3e79f81220  
+public.payment_p2025_10              777                -            f5ac8a1555e232f9  
+public.payment_p2025_11              677                -            2ff9d0131b5577a8  
+public.payment_p2025_12              739                -            da60efffad3b6e3e  
+public.payment_p2026_01              761                -            9a6af3f26c349972  
+public.payment_p2026_02              700                -            521d07f9f8e74362  
+public.payment_p2026_03              803                -            1a2b76a030f72045  
+public.payment_p2026_04              696                -            aadf2c8970cf2cf3  
+public.payment_p2026_05              782                -            7fa79b8e44150dd8  
+public.payment_p2026_06              727                -            91ba8c5d5210c2b4  
+public.payment_p2026_07              812                -            6b8de29e34a2cbc9  
+public.rental                     51,805                -            57ee008350739c45  
+public.staff                       1,500                -            51b3d2bf57b5524a  
+public.store                         500                -            25977d8d23a8b1df  
+
+Checks:
+  - made 1 role the dump hands objects to
+
+Verdict: PASSED
+  The backup restored, and no table shrank past the threshold (first run: this is now the baseline).
+
+Webhook:        none set
+Signed off by:  dba on call
+Seal (SHA-256 of the lines above): 67aa296f7daa2946341c21c763f9f9ff86882762a70af28c8585a864b9407546
+
+exit status: 0

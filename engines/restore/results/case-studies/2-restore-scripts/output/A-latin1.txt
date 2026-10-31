@@ -1,0 +1,28 @@
+$ altsql-restore --job chinook-pg --history history.db backups/chinook-latin1.sql
+
+AltSql Restore report
+=====================
+
+Job:            chinook-pg
+Run:            2
+Date:           2026-10-31 11:18:01 UTC
+Backup:         backups/chinook-latin1.sql
+Backup size:    416,688 bytes
+Backup SHA-256: a09545b144293185e911fc8e3184534c64ef92519b5dfbeabce0cb1b835854b6
+Kind:           PostgreSQL plain dump
+Restored with:  local PostgreSQL server: postgres (PostgreSQL) 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1) (/usr/lib/postgresql/16/bin/postgres)
+Restore time:   2.5 s
+Threshold:      alert when an item loses more than 10% of its rows
+Compared with:  run 1 of 2026-10-31 11:17:58 UTC (PASSED)
+
+Checks:
+  - made 1 role the dump hands objects to
+
+Verdict: FAILED
+  - the restore failed: psql stopped with an error (exit 3): psql:/tmp/altsql-restore-18875-boaKPF/dump:551: ERROR:  invalid byte sequence for encoding "UTF8": 0xfa | CONTEXT:  COPY album, line 26
+
+Webhook:        none set
+Signed off by:  (no signer given)
+Seal (SHA-256 of the lines above): 8ff676d5464f6c9ff2f35a7264cf7afb26f54e910312f27224643f5af8e96ac1
+
+exit status: 1
