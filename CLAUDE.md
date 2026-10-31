@@ -103,3 +103,5 @@ release: the release only publishes the commit main still points at.
   compared with the last good run); a "compare with N runs ago" option.
 - zip archives, pg_dumpall, directory-format pg dumps are not supported.
 - The browser demo still says 0.4.1 (its build is unchanged).
+
+- Oct 31 2026, owner decision: dump SQL running as superuser of the throwaway server (COPY ... TO PROGRAM, INTO OUTFILE reaching the host as the server user) stays as documented in the module manual; Docker mode contains it. Not to be changed without the owner.
