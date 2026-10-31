@@ -280,7 +280,7 @@ static void json_str(buf *b, const char *s) {
 static void send_webhook(const opts *o, const char *workdir, const char *json, char *result, size_t cap) {
     strs dirs = { 0 }, a = { 0 };
     static const char *const none[] = { NULL };
-    char curl[AR_PATH], f[AR_PATH], out[AR_PATH], t[512];
+    char curl[AR_PATH], dir[AR_PATH], f[AR_PATH], out[AR_PATH], t[512];
     runopt ro;
     int rc;
     strs saved = g_engine_path;
@@ -289,9 +289,15 @@ static void send_webhook(const opts *o, const char *workdir, const char *json, c
     g_engine_path = saved;
     if (!find_in(&dirs, "curl", curl, sizeof curl)) { strs_free(&dirs); snprintf(result, cap, "NOT sent: the curl program was not found"); return; }
     strs_free(&dirs);
-    snprintf(f, sizeof f, "%s/altsql-restore-webhook-%d.json", workdir, (int)getpid());
-    snprintf(out, sizeof out, "%s/altsql-restore-webhook-%d.out", workdir, (int)getpid());
-    if (write_file(f, json, strlen(json))) { g_err[0] = 0; snprintf(result, cap, "NOT sent: cannot write its body"); return; }
+    /* the body and curl's output go in a private folder: the work folder is often /tmp, where
+     * anyone could have put a link at a predictable name */
+    if (snprintf(dir, sizeof dir, "%s/ar-webhook-XXXXXX", workdir) >= (int)sizeof dir || !mkdtemp(dir)) {
+        snprintf(result, cap, "NOT sent: cannot make a folder for its body in %s", workdir);
+        return;
+    }
+    snprintf(f, sizeof f, "%s/body.json", dir);
+    snprintf(out, sizeof out, "%s/curl.out", dir);
+    if (write_file(f, json, strlen(json))) { g_err[0] = 0; rmtree(dir); snprintf(result, cap, "NOT sent: cannot write its body"); return; }
     memset(&ro, 0, sizeof ro);
     ro.out = out;
     ro.timeout = 30;
@@ -301,8 +307,7 @@ static void send_webhook(const opts *o, const char *workdir, const char *json, c
     rc = run_list(&a, &ro);
     strs_free(&a);
     tail_lines(out, 2, t, sizeof t);
-    unlink(f);
-    unlink(out);
+    rmtree(dir);
     if (rc == 0) snprintf(result, cap, "sent to %s", o->webhook);
     else snprintf(result, cap, "FAILED to send to %s (curl exit %d%s%s)", o->webhook, rc, t[0] ? ": " : "", t);
 }

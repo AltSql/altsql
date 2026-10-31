@@ -14,8 +14,12 @@
  * that isn't a whole number of pages, a page of the wrong kind where a b-tree page should
  * be, cell pointers or payloads out of the page, a page reached twice (a loop, or two
  * owners), page numbers past the end, too deep a tree, an overflow chain that ends early,
- * and schema records that don't decode. SQLite keeps no page checksums, so a change that
- * leaves the structure valid shows up only in the row counts and checksums. */
+ * and schema records that don't decode. Then, as SQLite's PRAGMA integrity_check does: rowids
+ * that don't rise, an index whose entries don't match its table's rows (a partial index may
+ * hold fewer, never more), and a page that no table, index or the free list uses. A file
+ * copied in the middle of a write transaction fails these (0.5.1: it passed before). SQLite
+ * keeps no page checksums, so a change that leaves the structure valid shows up only in the
+ * row counts and checksums. */
 
 typedef struct sqlf {
     FILE    *f;
@@ -186,34 +190,71 @@ static int sq_column(const uint8_t *rec, size_t n, int col, int *type, int64_t *
     return -1;
 }
 
-typedef struct sq_schema { strs types, names; uint32_t *roots; int n, cap; int bad; } sq_schema;
+typedef struct sq_schema { strs types, names, tbls; uint32_t *roots; int *partial; int64_t *count; int n, cap; int bad; } sq_schema;
+
+static int sq_idc(int c) { return c == '_' || c == '$' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c >= 0x80; }
+/* Does an index's CREATE text have a WHERE clause (a partial index)? Outside quotes. */
+static int sq_partial(const uint8_t *p, size_t n) {
+    size_t i;
+    int q = 0;
+    for (i = 0; i < n; i++) {
+        int c = p[i];
+        if (q) { if (c == q) q = 0; continue; }
+        if (c == '\'' || c == '"' || c == '`' || c == '[') { q = c == '[' ? ']' : c; continue; }
+        if (i + 5 <= n && (i == 0 || !sq_idc(p[i - 1])) && (i + 5 == n || !sq_idc(p[i + 5]))) {
+            char w[6];
+            int k;
+            for (k = 0; k < 5; k++) w[k] = (char)(p[i + k] | 0x20);
+            w[5] = 0;
+            if (!strcmp(w, "where")) return 1;
+        }
+    }
+    return 0;
+}
 static int sq_schema_cb(void *ctx, uint64_t rowid, const uint8_t *rec, size_t n) {
     sq_schema *S = (sq_schema *)ctx;
-    int t0, t1, t3;
+    int t0, t1, t2, t3, t4;
     int64_t root = 0, iv;
-    const uint8_t *tp, *np;
-    size_t tn, nn;
-    char ty[16], nm[1024];
+    const uint8_t *tp, *np, *bp, *sp;
+    size_t tn, nn, bn, sn;
+    char ty[16], nm[1024], tb[1024];
     (void)rowid;
     if (sq_column(rec, n, 0, &t0, &iv, &tp, &tn) || t0 != 3 ||
         sq_column(rec, n, 1, &t1, &iv, &np, &nn) || t1 != 3 ||
-        sq_column(rec, n, 3, &t3, &root, &tp, &tn)) { S->bad = 1; return 0; }
+        sq_column(rec, n, 2, &t2, &iv, &bp, &bn) ||
+        sq_column(rec, n, 3, &t3, &root, &tp, &tn) ||
+        sq_column(rec, n, 4, &t4, &iv, &sp, &sn)) { S->bad = 1; return 0; }
     sq_column(rec, n, 0, &t0, &iv, &tp, &tn);
+    if (t2 != 3) bn = 0;
+    snprintf(tb, sizeof tb, "%.*s", (int)(bn < 1023 ? bn : 1023), t2 == 3 ? (const char *)bp : "");
     snprintf(ty, sizeof ty, "%.*s", (int)(tn < 15 ? tn : 15), (const char *)tp);
     snprintf(nm, sizeof nm, "%.*s", (int)(nn < 1023 ? nn : 1023), (const char *)np);
     if (t3 != 1) root = 0;
-    if (S->n == S->cap) { S->cap = S->cap ? S->cap * 2 : 16; S->roots = (uint32_t *)xrealloc(S->roots, (size_t)S->cap * sizeof *S->roots); }
+    if (S->n == S->cap) {
+        S->cap = S->cap ? S->cap * 2 : 16;
+        S->roots = (uint32_t *)xrealloc(S->roots, (size_t)S->cap * sizeof *S->roots);
+        S->partial = (int *)xrealloc(S->partial, (size_t)S->cap * sizeof *S->partial);
+        S->count = (int64_t *)xrealloc(S->count, (size_t)S->cap * sizeof *S->count);
+    }
     strs_add(&S->types, ty);
     strs_add(&S->names, nm);
+    strs_add(&S->tbls, tb);
+    S->partial[S->n] = t4 == 3 && sq_partial(sp, sn);
+    S->count[S->n] = -1;
     S->roots[S->n++] = root > 0 && root <= 0xFFFFFFFFLL ? (uint32_t)root : 0;
     return 0;
 }
 
-typedef struct sq_tally { uint64_t rows; sha256 sha; } sq_tally;
+typedef struct sq_tally { uint64_t rows; sha256 sha; int rowids; int64_t last; const char *name, *file; } sq_tally;
 static int sq_tally_cb(void *ctx, uint64_t rowid, const uint8_t *rec, size_t n) {
     sq_tally *t = (sq_tally *)ctx;
     uint8_t r[12];
     int i;
+    if (t->rowids) {                                   /* a rowid table's keys rise strictly */
+        if (t->rows && (int64_t)rowid <= t->last)
+            return seterr("%s: damaged SQLite file (rowids out of order in table %s)", t->file, t->name);
+        t->last = (int64_t)rowid;
+    }
     for (i = 0; i < 8; i++) r[i] = (uint8_t)(rowid >> (56 - 8 * i));
     r[8] = (uint8_t)(n >> 24); r[9] = (uint8_t)(n >> 16); r[10] = (uint8_t)(n >> 8); r[11] = (uint8_t)n;
     sha256_add(&t->sha, r, 12);
@@ -224,13 +265,26 @@ static int sq_tally_cb(void *ctx, uint64_t rowid, const uint8_t *rec, size_t n) 
 
 /* Verifies the SQLite file at path (already copied into the sandbox). notes gets what was
  * checked, for the report. */
+static int sq_count_cb(void *ctx, uint64_t rowid, const uint8_t *rec, size_t n) {
+    (void)rowid; (void)rec; (void)n;
+    (*(int64_t *)ctx)++;
+    return 0;
+}
+static int sq_name_eq(const char *a, const char *b) {   /* SQLite names: ASCII case doesn't matter */
+    for (; *a && *b; a++, b++) {
+        int x = *a >= 'A' && *a <= 'Z' ? *a + 32 : *a, y = *b >= 'A' && *b <= 'Z' ? *b + 32 : *b;
+        if (x != y) return 0;
+    }
+    return *a == *b;
+}
+
 static int sqlite_verify(const char *path, items *out, strs *notes) {
     sqlf s;
     uint8_t h[100];
     struct stat st;
     sq_schema S;
     buf pay = { 0 };
-    int fam = -1, i, rc = -1, nidx = 0, skipped = 0;
+    int fam = -1, i, rc = -1, nidx = 0, skipped = 0, npartial = 0;
     uint32_t hdr_pages, trunk, nfree, freecount = 0;
     memset(&s, 0, sizeof s);
     memset(&S, 0, sizeof S);
@@ -272,11 +326,21 @@ static int sqlite_verify(const char *path, items *out, strs *notes) {
                 char hex[65];
                 memset(&t, 0, sizeof t);
                 sha256_init(&t.sha);
+                t.name = nm; t.file = s.name;
+                t.rowids = 1;                                    /* cleared below for WITHOUT ROWID */
+                {
+                    uint8_t *pg = s.page;                        /* the root's kind: table or index b-tree */
+                    if (sq_read(&s, S.roots[i], pg)) goto done;
+                    t.rowids = pg[S.roots[i] == 1 ? 100 : 0] == 13 || pg[S.roots[i] == 1 ? 100 : 0] == 5;
+                }
                 if (sq_walk(&s, S.roots[i], 0, &f, sq_tally_cb, &t, &pay)) goto done;
+                S.count[i] = (int64_t)t.rows;
                 sha256_hex_done(&t.sha, hex);
                 if (strncmp(nm, "sqlite_", 7)) items_add(out, nm, (int64_t)t.rows, hex);
             } else {
-                if (sq_walk(&s, S.roots[i], 0, &f, NULL, NULL, &pay)) goto done;
+                int64_t entries = 0;
+                if (sq_walk(&s, S.roots[i], 0, &f, sq_count_cb, &entries, &pay)) goto done;
+                S.count[i] = entries;
                 nidx++;
             }
         }
@@ -299,8 +363,45 @@ static int sqlite_verify(const char *path, items *out, strs *notes) {
         if (freecount > s.npages) { seterr("%s: damaged SQLite file (the free list loops)", s.name); goto done; }
     }
     if (freecount != nfree) { seterr("%s: damaged SQLite file (the free list has %u pages, the header says %u)", s.name, freecount, nfree); goto done; }
+    /* every index holds one entry per row of its table (a partial index: no more) */
+    for (i = 0; i < S.n; i++) {
+        int j;
+        if (strcmp(S.types.v[i], "index") || S.count[i] < 0) continue;
+        for (j = 0; j < S.n; j++) if (!strcmp(S.types.v[j], "table") && S.count[j] >= 0 && sq_name_eq(S.names.v[j], S.tbls.v[i])) break;
+        if (j == S.n) { seterr("%s: damaged SQLite file (index %s belongs to no table in the file)", s.name, S.names.v[i]); goto done; }
+        if (S.partial[i]) {
+            npartial++;
+            if (S.count[i] > S.count[j]) {
+                seterr("%s: damaged SQLite file (partial index %s has %lld entries, more than the %lld rows of %s)", s.name,
+                       S.names.v[i], (long long)S.count[i], (long long)S.count[j], S.names.v[j]);
+                goto done;
+            }
+        } else if (S.count[i] != S.count[j]) {
+            seterr("%s: damaged SQLite file (table %s has %lld rows, its index %s has %lld entries: copied in the middle of a write?)",
+                   s.name, S.names.v[j], (long long)S.count[j], S.names.v[i], (long long)S.count[i]);
+            goto done;
+        }
+    }
+    /* every page is used: by a b-tree, the free list, a pointer-map page (auto-vacuum), or
+     * it is the lock-byte page at 1 GiB */
+    {
+        uint32_t pg, unused = 0, first = 0;
+        if (be32(h + 52)) {                                  /* auto-vacuum: pointer maps at 2, then every usable/5 + 1 pages */
+            uint64_t step = s.usable / 5 + 1, q;
+            for (q = 2; q <= s.npages; q += step) s.seen[(q - 1) >> 3] |= (uint8_t)(1u << ((q - 1) & 7));
+        }
+        pg = (uint32_t)(1073741824u / s.psize) + 1;
+        if (pg <= s.npages) s.seen[(pg - 1) >> 3] |= (uint8_t)(1u << ((pg - 1) & 7));
+        for (pg = 1; pg <= s.npages; pg++) if (!(s.seen[(pg - 1) >> 3] & (1u << ((pg - 1) & 7)))) { if (!unused++) first = pg; }
+        if (unused) {
+            seterr("%s: damaged SQLite file (%u page%s used by no table, index or the free list, the first %u)", s.name,
+                   unused, unused == 1 ? "" : "s", first);
+            goto done;
+        }
+    }
     strs_addf(notes, "SQLite file: %s pages of %u bytes, %d tables, %d indexes walked page by page, %u free pages",
               commas(s.npages), s.psize, out->n, nidx, freecount);
+    strs_addf(notes, "every index matches its table's rows%s, rowids rise, every page is used", npartial ? " (partial indexes: no more entries than rows)" : "");
     if (skipped) strs_addf(notes, "%d virtual tables have no rows in the file and were skipped", skipped);
     if (h[18] == 2) strs_add(notes, "the file is in WAL mode: a separate -wal file is not part of this backup");
     rc = 0;
@@ -309,8 +410,11 @@ done:
     free(s.page);
     free(s.seen);
     free(S.roots);
+    free(S.partial);
+    free(S.count);
     strs_free(&S.types);
     strs_free(&S.names);
+    strs_free(&S.tbls);
     buf_free(&pay);
     return rc;
 }

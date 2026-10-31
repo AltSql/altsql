@@ -161,6 +161,61 @@ has "notes is gone" "the alert says the table is gone"
 expect 0 "--accept takes the smaller data as the baseline" --job sq --accept shop_small.db
 has "Verdict: ACCEPTED" "verdict ACCEPTED"
 expect 0 "after --accept the smaller file passes" --job sq shop_small.db
+# a file copied with cp in the middle of a big write transaction (rollback journal, not
+# copied): SQLite had already written part of the transaction into the file, so the table
+# walks to more rows than its index holds. It PASSED before 0.5.1 (found by the case studies).
+# Valid files of every shape the new checks touch must still pass.
+python3 - << 'PY'
+import os, random, shutil, sqlite3
+for f in ("torn_app.db", "torn.db"):
+    if os.path.exists(f): os.remove(f)
+db = sqlite3.connect("torn_app.db", isolation_level=None)
+db.execute("create table inv (id integer primary key, cust int, note text)")
+db.execute("create index inv_cust on inv(cust)")
+db.execute("begin")
+for i in range(1, 401): db.execute("insert into inv values (?, ?, ?)", (i, i % 50, "committed row %d" % i))
+db.execute("commit")
+db.execute("pragma cache_size=20")                # small cache: pages reach the file before the commit
+db.execute("begin")
+for i in range(401, 10401):
+    db.execute("insert into inv values (?, ?, ?)", (i, i % 50, "import row %d" % i))
+    if i == 5400: shutil.copyfile("torn_app.db", "torn.db")
+db.execute("rollback")
+db.close()
+random.seed(7)
+def mk(name, ps, av=None, vac=False):
+    if os.path.exists(name): os.remove(name)
+    c = sqlite3.connect(name, isolation_level=None)
+    c.execute("pragma page_size=%d" % ps)
+    if av: c.execute("pragma auto_vacuum=%s" % av)
+    c.execute("create table t (id integer primary key, a int, b text, c blob)")
+    c.execute("create index t_a on t(a)")
+    c.execute("create index t_part on t(b) where a > 50")
+    c.execute("create index t_expr on t(lower(b), a * 2)")
+    c.execute("create table w (k text primary key, v int, z text unique) without rowid")
+    c.execute("create index w_v on w(v)")
+    c.execute('create table "Mixed Case" (x)')
+    c.execute('create index mc on "mixed case"(x)')
+    c.execute("begin")
+    for i in range(2000):
+        c.execute("insert into t values (?, ?, ?, ?)", (i * 3, random.randint(0, 100), "s%d" % i * random.randint(1, 30), bytes(random.randint(0, 3000))))
+        c.execute("insert into w values (?, ?, ?)", ("k%06d" % i, i % 77, "z%d" % i))
+        c.execute('insert into "Mixed Case" values (?)', (i,))
+    c.execute("commit")
+    c.execute("delete from t where id % 7 = 0")
+    c.execute("delete from w where v = 3")
+    if av == "incremental": c.execute("pragma incremental_vacuum(5)")
+    if vac: c.execute("vacuum")
+    c.close()
+mk("shape_512.db", 512); mk("shape_65536.db", 65536); mk("shape_autovac.db", 4096, "full")
+mk("shape_incr.db", 1024, "incremental"); mk("shape_vacuumed.db", 4096, vac=True)
+PY
+expect 1 "a SQLite file copied in the middle of a write transaction fails" --job sq-torn torn.db
+has "table inv has 470 rows, its index inv_cust has 400 entries" "it names the table and the index that disagree"
+for f in shape_512.db shape_65536.db shape_autovac.db shape_incr.db shape_vacuumed.db; do
+    expect 0 "a valid file passes the index, rowid and page checks ($f)" --job "sq-$f" "$f"
+done
+has "partial indexes: no more entries than rows" "a partial index is checked as partial"
 
 # ---- archives ---------------------------------------------------------------------------------
 echo "-- tar archives and folders (built-in tar and gzip readers)"
@@ -219,6 +274,13 @@ PY
     has "FAILED to send" "the report says the webhook failed"
     expect 0 "a passing run sends nothing without --webhook-always" --job rp --webhook "http://127.0.0.1:9/none" shop.db
     has "not needed (the run passed)" "the report says so"
+    # the webhook's body and curl's output went to predictable names in the work folder
+    # (often /tmp), through any link someone left there, before 0.5.1
+    echo precious > "$T/victim"
+    sh -c 'ln -s "$1" "$2/altsql-restore-webhook-$$.json"; ln -s "$1" "$2/altsql-restore-webhook-$$.out"; exec "$3" --history "$4" --work-dir "$2" -q --job rp --webhook-always --webhook http://127.0.0.1:9/none shop.db' \
+        x "$T/victim" "$WK" "$R" "$H" > /dev/null 2>&1
+    [ "$(cat "$T/victim")" = precious ] && ok "the webhook follows no link left in the work folder" || bad "a link in the work folder was followed: $(head -c 80 "$T/victim")"
+    rm -f "$WK"/altsql-restore-webhook-*
 else
     echo "SKIPPED the webhook tests: no curl"
 fi
@@ -315,6 +377,52 @@ PY
     has "stopped with an error" "$name ($mode): it quotes the error"
     expect 1 "$name ($mode): a restore past --timeout is stopped and fails" --job "$job" --sandbox "$mode" --timeout 3 "$T/slow.sql"
     has "took longer than 3 seconds" "$name ($mode): it says the restore was stopped"
+    # the client's own commands (\! runs a shell command) must never run on this machine: they
+    # ran as root, and the run passed, before 0.5.1. Markers go in a folder anyone can write,
+    # so a command run as the server's user would leave one too.
+    M=$T/markers; mkdir -p "$M"; chmod 1777 "$M"
+    python3 - "$FX/$full" "$T" "$kind" "$M" << 'PY'
+import gzip, sys
+src, T, kind, M = sys.argv[1:5]
+s = gzip.open(src, "rt").read()
+if kind == "pg":
+    s = "\n".join(l for l in s.split("\n") if not l.startswith("\\restrict") and not l.startswith("\\unrestrict"))
+    i = s.index("COPY public.audit_log")
+    open(T + "/cmd1.sql", "w").write(s[:i] + "\\! touch %s/cmd1\n" % M + s[i:])
+    open(T + "/cmd2.sql", "w").write(s[:i] + "SELECT 1; \\o %s/cmd2\n" % M + s[i:])
+    # psql reads quotes by standard_conforming_strings, which SQL can change on the fly: no
+    # reading of the text can follow that, psql's own lock (\restrict) must catch it
+    open(T + "/cmd3.sql", "w").write(s[:i] + "SET standard_conforming_strings = off;\n"
+         "SELECT set_config('standard_' || 'conforming_strings', 'on', false);\n"
+         "SELECT 'a\\'; \\! touch %s/cmd3\n-- ';\n" % M + s[i:])
+    open(T + "/cmd4.sql", "w").write(s[:i] + "\\connect \"host=127.0.0.1 dbname=postgres\"\n" + s[i:])
+    open(T + "/nocmd.sql", "w").write(s[:i] + "CREATE FUNCTION public.f(t text) RETURNS text LANGUAGE sql AS $fn$ SELECT regexp_replace(t, '\\s+\\w', '') $fn$;\n"
+         "CREATE TABLE public.notes (n text);\nINSERT INTO public.notes VALUES ('C:\\new\\! x'), (E'it\\'s \\\\! ok'), ($$ \\! $$);\n"
+         "/* \\! in a comment */ -- \\! too\n" + s[i:])
+else:
+    i = s.index("INSERT INTO `audit_log`")
+    open(T + "/cmd1.sql", "w").write(s[:i] + "\\! touch %s/cmd1\n" % M + s[i:])
+    open(T + "/cmd2.sql", "w").write(s[:i] + "system touch %s/cmd2\n" % M + s[i:])
+    open(T + "/cmd3.sql", "w").write(s[:i] + "SELECT 'x'; \\! touch %s/cmd3\n" % M + s[i:])
+    open(T + "/cmd4.sql", "w").write(s[:i] + "tee %s/cmd4\n" % M + s[i:])
+    j = s.rindex("/*!40103 SET TIME_ZONE")
+    open(T + "/nocmd.sql", "w").write(s[:j] + "CREATE TABLE `notes` (n text);\nINSERT INTO `notes` VALUES ('C:\\\\new\\\\! x'), ('it\\'s'), ('\\\\! ok');\n"
+         "CREATE TABLE `ledger` (id int primary key, amount int) WITH SYSTEM VERSIONING;\n"
+         "INSERT INTO `ledger` VALUES (1,10),(2,20),(3,30);\n" + s[j:])
+PY
+    for c in 1 2 3 4; do
+        expect 1 "$name ($mode): a dump with a client command fails ($c)" --job "$job-cmd" --sandbox "$mode" "$T/cmd$c.sql"
+    done
+    [ -z "$(ls "$M")" ] && ok "$name ($mode): no client command in a dump ran on this machine" || bad "$name ($mode): a client command ran: $(ls "$M")"
+    if [ "$kind" = pg ]; then
+        expect 0 "$name ($mode): backslashes in strings, dollar quotes and comments are not commands" --job "$job-nocmd" --sandbox "$mode" "$T/nocmd.sql"
+        has "public.notes  *3" "$name ($mode): the table with backslashes in it is counted"
+    elif grep -q MariaDB "$T/ver_$job"; then
+        expect 0 "$name ($mode): backslashes in strings are not commands" --job "$job-nocmd" --sandbox "$mode" "$T/nocmd.sql"
+        has "notes  *3" "$name ($mode): the table with backslashes in it is counted"
+        # MariaDB lists a table WITH SYSTEM VERSIONING as 'SYSTEM VERSIONED': it was not counted before 0.5.1
+        has "ledger  *3" "$name ($mode): a system-versioned table is counted"
+    fi
     wait_gone 20 && ok "$name ($mode): no server or sandbox left after the timeout" || bad "$name ($mode): a server or sandbox is left"
     "$R" --history "$T/h_kill.db" --work-dir "$WK" --sandbox "$mode" -q "$T/slow.sql" > /dev/null 2>&1 &
     p=$!

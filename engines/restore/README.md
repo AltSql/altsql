@@ -122,6 +122,11 @@ The restore **fails** when:
   pages, or has a page of the wrong kind, a cell or payload out of its page, a
   page reached twice, a page number past the end, a broken overflow chain, a
   free list that doesn't add up, or schema records that don't decode;
+- a SQLite file has an index whose entries don't match its table's rows (a
+  partial index may hold fewer, never more), rowids that don't rise, or a page
+  that no table, index or the free list uses. These are checks SQLite's own
+  `PRAGMA integrity_check` makes; a file copied with `cp` in the middle of a
+  write transaction fails them;
 - a tar archive has a header that fails its checksum, ends inside a file, has
   no end blocks, or holds an absolute path or `..` (nothing is ever written
   outside the sandbox);
@@ -130,6 +135,16 @@ The restore **fails** when:
   line last, so a dump cut short is caught before anything runs);
 - `psql`, `pg_restore` or `mysql` stops at an error (they run with
   stop-on-first-error; a plain PostgreSQL dump runs in one transaction);
+- a plain dump holds a command for the client program itself rather than SQL
+  for the server, such as psql's `\!` (run a shell command), `\o` (write a
+  file) or `\connect` to another server, or the mysql client's `\!`,
+  `system`, `source` or `tee`. The client would run those on this machine,
+  outside the sandbox. psql runs with its own commands locked (`\restrict`
+  under a key the dump can't know; psql 13.22, 14.19, 15.14, 16.10, 17.6 or
+  later), after the dump's `\connect DBNAME` lines, the only ones pg_dump
+  writes, are let through; with an older psql the dump is read for such
+  commands first. The mysql client runs with `--binary-mode`, which turns its
+  own commands off for piped input, and `--local-infile=0`;
 - the restore runs past `--timeout`.
 
 The run **alerts** when the restore worked but a table (or, for archives, a
@@ -147,7 +162,8 @@ threshold. Read the "previous" column, or keep the threshold low.
 ## Counts and checksums
 
 - **SQLite**: rows counted by walking every table's b-tree (rowid tables and
-  WITHOUT ROWID tables), indexes walked too. The checksum is SHA-256 over every
+  WITHOUT ROWID tables), indexes walked too and their entries counted against
+  their tables' rows. The checksum is SHA-256 over every
   row's rowid and record bytes, in key order.
 - **PostgreSQL**: `count(*)`, and the sum of the first 60 bits of
   `md5(row::text)` over the rows, so the order rows come back in doesn't
@@ -200,7 +216,8 @@ server on the same machine. The sandbox goes away:
    is gone, and removes it, saying so in its report.
 
 **Running as root.** PostgreSQL refuses to run as root, so the server runs as
-the user `postgres` (or `nobody`), and MySQL as `mysql`. That user must be
+the user `postgres` (or `nobody`), and MySQL as `mysql`; the clients (`psql`,
+`pg_restore`, `mysql`) run as that user too. That user must be
 able to enter `--work-dir`; `/tmp` works, a folder under a private home
 folder may not, and the report says so when initdb is refused.
 
@@ -210,26 +227,38 @@ folder may not, and the report says so when initdb is refused.
     make test        unit tests, then the end-to-end tests
     make sanitize    the same under AddressSanitizer and UBSan
     make strict      every warning an error, gcc and clang
+    make fuzz        damaged SQLite, tar and gzip files through the readers, under ASan and UBSan
     sh tools/all_logs.sh   every log in results/
     sh tools/bench.sh      timings, three runs each
 
-From the logs in `results/` (31 October 2026, a shared 2-CPU Linux VM):
+From the logs in `results/` (31 October 2026, version 0.5.1, a shared 2-CPU Linux VM):
 
-- **test_units.log**: 22 checks. SHA-256 and HMAC-SHA256 against published
+- **test_units.log**: 39 checks. SHA-256 and HMAC-SHA256 against published
   vectors, CRC-32, the inflater on stored, fixed and dynamic Huffman blocks
   and two-member files. 2,756 cut-short gzip files: every one fails (a cut
   exactly at the end of the first of two gzip members is a whole gzip file;
   the formats inside catch that one). 2,000 single flipped bits in a gzip
-  file: all 2,000 fail.
-- **test_restore.log**: 123 checks, all passed, with a local PostgreSQL 16.15
+  file: all 2,000 fail. A pax header record that runs past its data is not
+  read past it. psql commands in plain dumps (`\!`, `\o`, `\copy`, `\i`,
+  `\connect` to a host, after quotes, dollar quotes and COPY data) are found,
+  and backslashes inside strings, comments and COPY data are not mistaken for
+  them.
+- **test_restore.log**: 147 checks, all passed, with a local PostgreSQL 16.15
   and a local MariaDB 10.11.14. SQLite files cut in half, short by one page,
   short by 100 bytes, with a page header overwritten, with a broken header, as
-  a cut or damaged `.gz`: all fail. Tar archives cut in the middle, without
+  a cut or damaged `.gz`, copied with `cp` in the middle of a write
+  transaction: all fail. Valid files with page sizes of 512 and 65,536 bytes,
+  auto-vacuum, incremental vacuum, partial and expression indexes and WITHOUT
+  ROWID tables with indexes pass. Tar archives cut in the middle, without
   their end blocks, with a broken header checksum, with a `../` path: all
   fail. PostgreSQL and MySQL dumps cut short, missing only their last lines,
   with a bad row, and a cut-short custom-format dump: all fail. Plain,
   custom-format and tar-format dumps of the same PostgreSQL data give the
-  same checksums; a `pg_dump -C` dump is counted in the database it makes. 20% fewer rows
+  same checksums; a `pg_dump -C` dump is counted in the database it makes.
+  Dumps holding a client command (psql `\!`, `\o`, `\connect` to a host, one
+  hidden behind a change of `standard_conforming_strings` made through SQL;
+  mysql `\!`, `system`, `tee`) all fail and nothing runs on the machine; a
+  MariaDB table WITH SYSTEM VERSIONING is counted. 20% fewer rows
   alerts, 4% doesn't, a dropped table alerts. PostgreSQL and MySQL with no
   server programs and no Docker: NOT VERIFIED. kill -9 of a run with a live
   PostgreSQL or MariaDB server in its sandbox: server stopped and sandbox
@@ -237,11 +266,16 @@ From the logs in `results/` (31 October 2026, a shared 2-CPU Linux VM):
   the database is still being set up; the same for SIGTERM and for a restore past `--timeout`; with the
   watchdog killed too, the next run sweeps the sandbox.
 - **sanitize.log**: all the above under AddressSanitizer and UBSan.
-- **bench.log**: a SQLite file of 1,000,000 rows (45 MB) checked in 1.0 to
-  1.4 s; a tar.gz of 5,000 files in 1.4 to 3.8 s; the 6,500-row PostgreSQL
-  test dump through a fresh local server in 3.8 to 5.4 s, the MySQL one in 6.5
-  to 7.1 s (most of it starting the server). Three runs each on a shared
-  2-CPU VM, so the spread is wide.
+- **fuzz.log**: 30,000 damaged SQLite files, tar archives and gzip files
+  (flipped bits, edge values in 8-, 16- and 32-bit fields, cuts, copied and
+  inserted blocks, from seeds made by `tools/fuzz_seeds.py`) through the
+  readers under AddressSanitizer and UBSan: no crash and no report.
+- **bench.log**: a SQLite file of 1,000,000 rows (45 MB) checked in 0.57 to
+  0.64 s, with the index, rowid and page checks of 0.5.1; a tar.gz of 5,000
+  files in 1.0 to 1.4 s; the 6,500-row PostgreSQL test dump through a fresh
+  local server in 2.0 to 2.2 s, the MySQL one in 1.9 to 2.1 s (most of it
+  starting the server). Three runs each on a shared 2-CPU VM, whose load
+  varies: the 0.5.0 runs on the same VM took up to twice as long.
 
 CI runs `make test` on Linux x86-64, Linux ARM and macOS on every push, with
 whatever servers the runner has, and through Docker on ubuntu-latest. The last
@@ -254,10 +288,20 @@ lines of the log name the engines each run covered.
   only as changed counts and checksums. A `-wal` file beside the database is
   not part of the backup; checkpoint before copying, or use `.backup`.
   Virtual tables have no rows in the file and are skipped.
-- PostgreSQL: `pg_dump` plain and custom formats. Not `pg_dumpall`, not the
-  directory or tar formats. Roles the dump hands objects to are made as
+- PostgreSQL: `pg_dump` plain, custom and tar formats. Not `pg_dumpall`, not
+  the directory format. A dump made with `pg_dump --clean` (without
+  `--if-exists`) fails, since its DROP statements stop at the first error in an
+  empty database, as do dumps of tables in tablespaces the sandbox doesn't
+  have. Roles the dump hands objects to are made as
   NOLOGIN roles first. A dump from a newer `pg_dump` may need a newer server
   than the one found; pick the Docker image with `--pg-image`.
+- The dump's SQL runs as a superuser of the throwaway server. Client commands
+  are kept out (above), but SQL itself can reach the server's own machine:
+  `COPY ... TO PROGRAM` and file functions in PostgreSQL, `SELECT ... INTO
+  OUTFILE` in MySQL, as the user the server runs as (`postgres`, `mysql` or
+  `nobody` when run as root; else the user running altsql-restore). pg_dump and
+  mysqldump never write those; verify dumps from servers you trust, or use
+  `--sandbox docker`, where the server runs in a container.
 - Docker mode depends on pulling the image; the first run is slow.
 - POSIX only (Linux and macOS); no Windows build.
 - A run's pid in the sandbox's owner file decides whether a sandbox is stale;

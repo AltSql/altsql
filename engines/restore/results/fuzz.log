@@ -1,0 +1,16 @@
+seeds in build/fuzz_seeds
+seeds: 9 files from build/fuzz_seeds
+  vec_multi.gz (148 bytes)
+  ustar.tar (10240 bytes)
+  vec_fixed.gz (82 bytes)
+  gnu_long.tar (10240 bytes)
+  pax.tar (10240 bytes)
+  vec_stored.gz (1983 bytes)
+  free_1024.sqlite (215040 bytes)
+  small_512.sqlite (9216 bytes)
+  big_4096.sqlite (540672 bytes)
+damaged SQLite files: 10114 (refused 6457, accepted 3657)
+damaged tar archives: 10021 (refused 5186, accepted 4835)
+damaged gzip files:   9865 (refused 9353, accepted 512)
+no crash, no sanitizer report in 30000 runs
+exit 0

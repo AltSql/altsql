@@ -85,6 +85,7 @@ static int client_sql(const rctx *r, const dbs *d, const char *db, const char *s
     o.in = f;
     o.out = g_out;
     o.timeout = timeout;
+    o.drop = d->drop; o.uid = d->uid; o.gid = d->gid;    /* not root: the dump's SQL runs in the server, not here */
     rc = run_list(&a, &o);
     strs_free(&a);
     return rc;
@@ -367,6 +368,284 @@ static int docker_start(const rctx *r, dbs *d) {
     return 0;
 }
 
+/* ---- psql's own commands in a plain dump ---------------------------------------------------- */
+/* psql runs backslash commands itself, on this machine and as the user running it, not in the
+ * sandbox: \! runs a shell command, \o and \w write files, \i reads them, \connect reaches
+ * other servers. pg_dump writes none of them except \connect DBNAME (with -C), \restrict and
+ * \unrestrict (17.6, 16.10 and later), and the end of COPY data (\.).
+ *
+ * So the dump is read as psql reads it (quotes, comments, dollar quotes and COPY data
+ * skipped) and copied for psql: the dump's own \restrict and \unrestrict lines are left out,
+ * and any other command than \connect DBNAME fails the restore before anything runs. When
+ * psql can lock its commands out (\restrict, see psql_restricts), the copy starts with
+ * "\restrict KEY" under a random key the dump can't know, and each \connect goes between
+ * "\unrestrict KEY" and "\restrict KEY": then psql itself refuses any command this reading
+ * missed (a dump can change how psql reads quotes through SQL, which no reading of the text
+ * can follow), and the restore fails. */
+typedef struct cscan {
+    FILE   *f, *o;             /* the dump; the copy for psql                       */
+    int     std;               /* standard_conforming_strings, as far as is known   */
+    long    line;
+    const char *key;           /* the \restrict key, or NULL                        */
+    char    head[96];          /* the start of the current statement, lower case    */
+    size_t  hn;
+    char    tail[24];          /* its last characters, lower case                   */
+} cscan;
+
+static int cs_id(int c) { return c == '_' || c == '$' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c >= 0x80; }
+static int cs_get(cscan *s) {
+    int c = getc(s->f);
+    if (c == '\n') s->line++;
+    if (c != EOF && s->o) putc(c, s->o);
+    return c;
+}
+static int cs_peek(cscan *s) { int c = getc(s->f); if (c != EOF) ungetc(c, s->f); return c; }
+static void cs_stmt_char(cscan *s, int c) {          /* outside quotes and comments: the statement's text */
+    size_t k = strlen(s->tail);
+    if (c >= 'A' && c <= 'Z') c += 32;
+    if (c == '\t' || c == '\r' || c == '\n') c = ' ';
+    if (c != ' ' || (s->hn && s->head[s->hn - 1] != ' ')) {
+        if (s->hn < sizeof s->head - 1) { s->head[s->hn++] = (char)c; s->head[s->hn] = 0; }
+    }
+    if (c == ' ' && (!k || s->tail[k - 1] == ' ')) return;
+    if (k == sizeof s->tail - 1) { memmove(s->tail, s->tail + 1, k); k--; }
+    s->tail[k] = (char)c;
+    s->tail[k + 1] = 0;
+}
+static int cs_refuse(cscan *s, const char *what) {
+    return seterr("the dump holds a psql command at line %ld (%s); psql would run it on this machine, outside the "
+                  "sandbox, so the dump was not restored", s->line, what);
+}
+
+/* The rest of a meta-command's line, without the newline. */
+static void cs_rest(cscan *s, char *a, size_t cap) {
+    size_t n = 0;
+    int c;
+    while ((c = cs_get(s)) != EOF && c != '\n') if (n < cap - 1 && (n || (c != ' ' && c != '\t'))) a[n++] = (char)c;
+    a[n] = 0;
+    while (n && (a[n - 1] == '\r' || a[n - 1] == ' ' || a[n - 1] == '\t')) a[--n] = 0;
+}
+
+/* \connect: only a database name, as pg_dump -C writes it ("\connect name", or
+ * "\connect -reuse-previous=on "dbname='name'""): no host, port, user or connection string. */
+static int cs_connect_ok(cscan *s, const char *a) {
+    const char *p = a;
+    int names = 0;
+    if (strchr(a, '\\') || strchr(a, '`') || strchr(a, ':')) return cs_refuse(s, "\\connect with more than a database name");
+    while (*p) {
+        char tok[1024];
+        size_t t = 0;
+        while (*p == ' ' || *p == '\t') p++;
+        if (!*p) break;
+        if (*p == '"') {
+            p++;
+            while (*p && !(*p == '"' && p[1] != '"')) { if (*p == '"') p++; if (t < sizeof tok - 1) tok[t++] = *p; p++; }
+            if (*p != '"') return cs_refuse(s, "\\connect with a broken argument");
+            p++;
+        } else {
+            while (*p && *p != ' ' && *p != '\t') { if (t < sizeof tok - 1) tok[t++] = *p; p++; }
+        }
+        tok[t] = 0;
+        if (!strcmp(tok, "-reuse-previous=on") || !strcmp(tok, "-reuse-previous=off")) continue;
+        if (!strncmp(tok, "dbname='", 8)) {               /* dbname='it''s' and nothing more */
+            const char *q = tok + 8;
+            while (*q && !(*q == '\'' && q[1] != '\'')) q += *q == '\'' ? 2 : 1;
+            if (*q != '\'' || q[1]) return cs_refuse(s, "\\connect to another server");
+        } else if (strchr(tok, '=') || strchr(tok, '\'') || tok[0] == '-') {
+            return cs_refuse(s, "\\connect to another server");
+        }
+        if (++names > 1) return cs_refuse(s, "\\connect with a user, host or port");
+    }
+    return 0;
+}
+
+/* After a backslash outside quotes and comments; at is where it starts in the copy. */
+static int cs_backslash(cscan *s, off_t at) {
+    char name[32], a[1024];
+    size_t n = 0;
+    int c;
+    while ((c = cs_peek(s)) != EOF && c != ' ' && c != '\t' && c != '\n' && c != '\r' && c != '\\' && n < sizeof name - 1) name[n++] = (char)cs_get(s);
+    name[n] = 0;
+    if (!strcmp(name, "connect") || !strcmp(name, "c")) {
+        cs_rest(s, a, sizeof a);
+        if (cs_connect_ok(s, a)) return -1;
+        if (s->o) {
+            fseeko(s->o, at, SEEK_SET);
+            if (s->key) fprintf(s->o, "\\unrestrict %s\n\\connect %s\n\\restrict %s\n", s->key, a, s->key);
+            else fprintf(s->o, "\\connect %s\n", a);
+        }
+        return 0;
+    }
+    if (!strcmp(name, "restrict") || !strcmp(name, "unrestrict")) {   /* the dump's own: left out of the copy */
+        cs_rest(s, a, sizeof a);
+        if (strchr(a, '\\') || strchr(a, '`')) return cs_refuse(s, "a command after \\restrict");
+        if (s->o) fseeko(s->o, at, SEEK_SET);
+        return 0;
+    }
+    {
+        char what[48];
+        snprintf(what, sizeof what, "\\%s", n ? name : "\\");
+        return cs_refuse(s, what);
+    }
+}
+
+/* COPY ... FROM stdin; has ended: psql reads data lines up to a line "\.". */
+static int cs_copy_data(cscan *s) {
+    int c, bol = 1;
+    while ((c = cs_get(s)) != EOF && c != '\n') {          /* the rest of the COPY line */
+        if (c != ' ' && c != '\t' && c != '\r') return cs_refuse(s, "text after COPY ... FROM stdin");
+    }
+    for (;;) {
+        c = cs_get(s);
+        if (c == EOF) return 0;
+        if (bol && c == '\\') {
+            c = cs_get(s);
+            if (c == '.') {
+                c = cs_get(s);
+                if (c == '\r') c = cs_get(s);
+                if (c == '\n' || c == EOF) return 0;
+            }
+            if (c == EOF) return 0;
+        }
+        bol = c == '\n';
+    }
+}
+
+/* Reads the plain dump at dump; with out, writes psql's copy there (see above). key: the
+ * \restrict key when psql has \restrict, else NULL. */
+static int pg_dump_commands(const char *dump, const char *out, const char *key) {
+    cscan s;
+    int c, prev = '\n', prev2 = '\n', rc = 0;
+    memset(&s, 0, sizeof s);
+    s.std = 1;
+    s.line = 1;
+    s.key = key;
+    if (!(s.f = fopen(dump, "rb"))) return seterr("cannot read %s: %s", dump, strerror(errno));
+    if (out && !(s.o = fopen(out, "w+b"))) { fclose(s.f); return seterr("cannot write %s: %s", out, strerror(errno)); }
+    if (s.o && key) fprintf(s.o, "\\restrict %s\n", key);
+    while (!rc && (c = cs_get(&s)) != EOF) {
+        if (c == '\\') {
+            off_t at = s.o ? ftello(s.o) - 1 : 0;
+            rc = cs_backslash(&s, at);
+            prev = '\n';
+            continue;
+        }
+        if (c == '-' && cs_peek(&s) == '-') {                /* -- comment */
+            while ((c = cs_get(&s)) != EOF && c != '\n') {}
+            cs_stmt_char(&s, ' ');
+            prev = '\n';
+            continue;
+        }
+        if (c == '/' && cs_peek(&s) == '*') {                /* nested block comments */
+            {
+                int depth = 1, p0 = 0, t;
+                cs_get(&s);
+                t = cs_get(&s);
+                while (t != EOF) {
+                    if (p0 == '*' && t == '/') { if (!--depth) break; t = 0; }
+                    else if (p0 == '/' && t == '*') { depth++; t = 0; }
+                    p0 = t;
+                    t = cs_get(&s);
+                }
+            }
+            cs_stmt_char(&s, ' ');
+            prev = ' ';
+            continue;
+        }
+        if (c == '\'' || c == '"') {                         /* E'..' and, with the setting off, '..' take backslashes */
+            int q = c, esc = c == '\'' && (!s.std || ((prev == 'e' || prev == 'E') && !cs_id(prev2)));
+            while ((c = cs_get(&s)) != EOF) {
+                if (esc && c == '\\') { cs_get(&s); continue; }
+                if (c == q) {
+                    if (cs_peek(&s) == q) { cs_get(&s); continue; }   /* a doubled quote */
+                    break;
+                }
+            }
+            cs_stmt_char(&s, 'q');
+            prev = q; prev2 = ' ';
+            continue;
+        }
+        if (c == '$' && !cs_id(prev)) {                      /* $tag$ ... $tag$ */
+            char tag[64];
+            size_t n = 0;
+            int d;
+            while ((d = cs_peek(&s)) != EOF && cs_id(d) && d != '$' && !(n == 0 && d >= '0' && d <= '9') && n < sizeof tag - 1) tag[n++] = (char)cs_get(&s);
+            tag[n] = 0;
+            if (d == '$') {
+                size_t m = 0;
+                cs_get(&s);
+                int e;
+                while ((e = cs_get(&s)) != EOF) {
+                    if (m == 0) { if (e == '$') m = 1; continue; }
+                    if (m <= n && e == tag[m - 1]) { m++; continue; }
+                    if (m == n + 1 && e == '$') break;
+                    m = e == '$' ? 1 : 0;
+                }
+                cs_stmt_char(&s, 'q');
+                prev = '$'; prev2 = ' ';
+                continue;
+            }
+            if (n) { prev2 = n > 1 ? tag[n - 2] : '$'; prev = tag[n - 1]; } else { prev2 = prev; prev = '$'; }
+            continue;
+        }
+        if (c == ';') {
+            size_t k = strlen(s.tail), hl = strlen("from stdin"), i, j = 0;
+            int copy = !strncmp(s.head, "copy ", 5) && k >= hl && !strcmp(s.tail + k - hl, "from stdin");
+            char nosp[96];
+            for (i = 0; s.head[i] && j < sizeof nosp - 1; i++) if (s.head[i] != ' ') nosp[j++] = s.head[i];
+            nosp[j] = 0;
+            if (!strncmp(nosp, "setstandard_conforming_strings", 30)) {
+                const char *v = nosp + 30;
+                if (*v == '=') v++; else if (!strncmp(v, "to", 2)) v += 2;
+                if (!strncmp(v, "off", 3) || !strncmp(v, "false", 5)) s.std = 0;
+                else if (!strncmp(v, "on", 2) || !strncmp(v, "true", 4)) s.std = 1;
+            }
+            s.hn = 0; s.head[0] = 0; s.tail[0] = 0;
+            prev2 = prev; prev = ';';
+            if (copy) { rc = cs_copy_data(&s); prev = '\n'; }
+            continue;
+        }
+        cs_stmt_char(&s, c);
+        prev2 = prev; prev = c;
+    }
+    fclose(s.f);
+    if (s.o) {
+        if (fflush(s.o) || ftruncate(fileno(s.o), ftello(s.o)) || ferror(s.o)) { if (!rc) rc = seterr("cannot write %s: %s", out, strerror(errno)); }
+        if (fclose(s.o) && !rc) rc = seterr("cannot write %s: %s", out, strerror(errno));
+    }
+    return rc;
+}
+
+/* Does this psql have \restrict (13.22, 14.19, 15.14, 16.10, 17.6, 18 and later)? From
+ * "psql (PostgreSQL) 16.15 (Ubuntu ...)". */
+static int psql_restricts(const char *version) {
+    const char *p = strstr(version, "PostgreSQL)");
+    int major = 0, minor = 0;
+    if (!p) return 0;
+    p += 11;
+    while (*p == ' ') p++;
+    major = atoi(p);
+    while (*p >= '0' && *p <= '9') p++;
+    if (*p == '.') minor = atoi(p + 1);
+    return major >= 18 || (major == 17 && minor >= 6) || (major == 16 && minor >= 10) || (major == 15 && minor >= 14)
+        || (major == 14 && minor >= 19) || (major == 13 && minor >= 22);
+}
+
+/* A random key for \restrict: letters and digits. */
+static void restrict_key(char *out, size_t n) {
+    static const char al[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    uint8_t r[64];
+    size_t i;
+    FILE *f = fopen("/dev/urandom", "rb");
+    if (!f || fread(r, 1, sizeof r, f) != sizeof r) {   /* no /dev/urandom: time and pid, still unknown to the dump */
+        uint64_t x = (uint64_t)time(NULL) * 6364136223846793005ull ^ (uint64_t)getpid() * 1442695040888963407ull ^ (uint64_t)(now_mono() * 1e9);
+        for (i = 0; i < sizeof r; i++) { x ^= x << 13; x ^= x >> 7; x ^= x << 17; r[i] = (uint8_t)x; }
+    }
+    if (f) fclose(f);
+    for (i = 0; i + 1 < n && i < sizeof r; i++) out[i] = al[r[i] % 62];
+    out[i] = 0;
+}
+
 /* ---- PostgreSQL: restore and count -------------------------------------------------------- */
 /* Role names a plain dump hands objects to ("OWNER TO x", "GRANT ... TO x"), so the restore
  * can make them first, as a real restore would. Only plain identifiers or "quoted" ones. */
@@ -495,7 +774,7 @@ static int pg_restore_into(const rctx *r, dbs *d) {
     strs a = { 0 }, roles = { 0 };
     runopt o;
     int rc, created = 0, i;
-    char t[1500];
+    char t[1500], psqlin[AR_PATH];
     if (client_sql(r, d, "postgres", "CREATE DATABASE restore_check;", 120, 1) != 0) {
         tail_lines(g_out, 3, t, sizeof t);
         return seterr("cannot make the database to restore into: %s", t);
@@ -515,6 +794,25 @@ static int pg_restore_into(const rctx *r, dbs *d) {
     memset(&o, 0, sizeof o);
     o.out = g_out;
     o.timeout = r->timeout;
+    o.drop = d->drop; o.uid = d->uid; o.gid = d->gid;
+    if (!r->pg_custom) {                                  /* psql's own commands: see pg_dump_commands */
+        char ver[200] = "", key[40];
+        int locked;
+        if (d->docker) {
+            strs_add(&a, d->dockerprog); strs_add(&a, "exec"); strs_add(&a, d->container); strs_add(&a, "psql"); strs_add(&a, "--version");
+            run_list(&a, &o);
+            strs_free(&a);
+            first_line(g_out, ver, sizeof ver);
+        } else prog_version(d->client, ver, sizeof ver);
+        locked = psql_restricts(ver);
+        restrict_key(key, 33);
+        sbpath(r, "dump.psql", psqlin);
+        if (pg_dump_commands(r->dump, psqlin, locked ? key : NULL)) return -1;
+        chmod(psqlin, 0644);
+        if (locked) strs_add(r->notes, "psql ran with its own commands locked (\\restrict), so nothing in the dump could run outside the sandbox");
+        else strs_addf(r->notes, "this psql (%s) can't lock out its own commands (\\restrict needs 13.22, 14.19, 15.14, 16.10, 17.6 or later); "
+                       "the dump was read for them first and holds none", ver[0] ? ver : "version unknown");
+    }
     if (r->pg_custom) {
         if (d->docker) {
             strs_add(&a, d->dockerprog); strs_add(&a, "exec"); strs_add(&a, "-i"); strs_add(&a, d->container);
@@ -531,8 +829,8 @@ static int pg_restore_into(const rctx *r, dbs *d) {
         client_args(d, &a, created ? "postgres" : "restore_check");
         strs_add(&a, "-v"); strs_add(&a, "ON_ERROR_STOP=1");
         if (!created) strs_add(&a, "--single-transaction");
-        if (d->docker) o.in = r->dump;
-        else { strs_add(&a, "-f"); strs_add(&a, r->dump); }
+        if (d->docker) o.in = psqlin;
+        else { strs_add(&a, "-f"); strs_add(&a, psqlin); }
     }
     rc = run_list(&a, &o);
     strs_free(&a);
@@ -580,15 +878,22 @@ static int my_restore_into(const rctx *r, dbs *d) {
         return seterr("cannot make the database to restore into: %s", t);
     }
     client_args(d, &a, "restore_check");
+    /* --binary-mode: the client's own commands (\! runs a shell command, source reads a file,
+     * tee writes one) are off for piped input, so nothing in the dump runs outside the server;
+     * --local-infile=0: LOAD DATA LOCAL can't read this machine's files */
+    strs_add(&a, "--binary-mode");
+    strs_add(&a, "--local-infile=0");
     memset(&o, 0, sizeof o);
     o.in = r->dump;
     o.out = g_out;
     o.timeout = r->timeout;
+    o.drop = d->drop; o.uid = d->uid; o.gid = d->gid;
     rc = run_list(&a, &o);
     strs_free(&a);
     if (rc == RUN_TIMEOUT) return seterr("the restore took longer than %.0f seconds and was stopped", r->timeout);
     if (rc != 0) { tail_lines(g_out, 4, t, sizeof t); return seterr("the mysql client stopped with an error (exit %d): %s", rc, t[0] ? t : "no message"); }
-    if (client_sql(r, d, NULL, "SELECT table_schema, table_name FROM information_schema.tables WHERE table_type = 'BASE TABLE' "
+    /* MariaDB lists a table WITH SYSTEM VERSIONING as 'SYSTEM VERSIONED', not 'BASE TABLE' */
+    if (client_sql(r, d, NULL, "SELECT table_schema, table_name FROM information_schema.tables WHERE table_type IN ('BASE TABLE', 'SYSTEM VERSIONED') "
                    "AND table_schema NOT IN ('mysql', 'information_schema', 'performance_schema', 'sys') ORDER BY 1, 2;", 600, 1) != 0) {
         tail_lines(g_out, 3, t, sizeof t);
         return seterr("cannot list the tables: %s", t);

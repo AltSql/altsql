@@ -40,7 +40,7 @@
 
 #include "altsql.h"
 
-#define ALTSQL_DB_VERSION "0.5.0"
+#define ALTSQL_DB_VERSION "0.5.1"
 
 #ifdef __cplusplus
 extern "C" {

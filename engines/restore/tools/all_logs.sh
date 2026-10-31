@@ -12,5 +12,6 @@ run test_units ./build/test_units
 run test_restore sh tests/test_restore.sh
 run sanitize make -s sanitize
 run strict make -s strict
+run fuzz make -s fuzz
 run bench sh tools/bench.sh
 grep -h "^exit" results/*.log | sort | uniq -c

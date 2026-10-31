@@ -1,4 +1,4 @@
-AltSql Restore: end-to-end tests (altsql-restore 0.5.0 (AltSql DB 0.5.0, AltSql Core 0.5.0))
+AltSql Restore: end-to-end tests (altsql-restore 0.5.1 (AltSql DB 0.5.1, AltSql Core 0.5.1))
 -- SQLite files (built-in reader)
 ok    a SQLite file restores and passes (exit 0)
 ok    first run passes and becomes the baseline
@@ -33,6 +33,14 @@ ok    the alert says the table is gone
 ok    --accept takes the smaller data as the baseline (exit 0)
 ok    verdict ACCEPTED
 ok    after --accept the smaller file passes (exit 0)
+ok    a SQLite file copied in the middle of a write transaction fails (exit 1)
+ok    it names the table and the index that disagree
+ok    a valid file passes the index, rowid and page checks (shape_512.db) (exit 0)
+ok    a valid file passes the index, rowid and page checks (shape_65536.db) (exit 0)
+ok    a valid file passes the index, rowid and page checks (shape_autovac.db) (exit 0)
+ok    a valid file passes the index, rowid and page checks (shape_incr.db) (exit 0)
+ok    a valid file passes the index, rowid and page checks (shape_vacuumed.db) (exit 0)
+ok    a partial index is checked as partial
 -- tar archives and folders (built-in tar and gzip readers)
 ok    a tar.gz restores and passes (exit 0)
 ok    files counted per folder: site/www has 40
@@ -68,6 +76,7 @@ ok    a webhook that can't be reached doesn't hide the alert (exit 1)
 ok    the report says the webhook failed
 ok    a passing run sends nothing without --webhook-always (exit 0)
 ok    the report says so
+ok    the webhook follows no link left in the work folder
 -- missing engines are NOT VERIFIED
 ok    PostgreSQL dump, no server programs, local only (exit 3)
 ok    verdict NOT VERIFIED
@@ -108,6 +117,13 @@ ok    PostgreSQL (local): a damaged dump fails at the first error (exit 1)
 ok    PostgreSQL (local): it quotes the error
 ok    PostgreSQL (local): a restore past --timeout is stopped and fails (exit 1)
 ok    PostgreSQL (local): it says the restore was stopped
+ok    PostgreSQL (local): a dump with a client command fails (1) (exit 1)
+ok    PostgreSQL (local): a dump with a client command fails (2) (exit 1)
+ok    PostgreSQL (local): a dump with a client command fails (3) (exit 1)
+ok    PostgreSQL (local): a dump with a client command fails (4) (exit 1)
+ok    PostgreSQL (local): no client command in a dump ran on this machine
+ok    PostgreSQL (local): backslashes in strings, dollar quotes and comments are not commands (exit 0)
+ok    PostgreSQL (local): the table with backslashes in it is counted
 ok    PostgreSQL (local): no server or sandbox left after the timeout
 ok    PostgreSQL (local): a server runs in the sandbox
 ok    PostgreSQL (local): kill -9 mid-restore: the server is stopped and the sandbox removed
@@ -126,6 +142,14 @@ ok    MySQL (local): a damaged dump fails at the first error (exit 1)
 ok    MySQL (local): it quotes the error
 ok    MySQL (local): a restore past --timeout is stopped and fails (exit 1)
 ok    MySQL (local): it says the restore was stopped
+ok    MySQL (local): a dump with a client command fails (1) (exit 1)
+ok    MySQL (local): a dump with a client command fails (2) (exit 1)
+ok    MySQL (local): a dump with a client command fails (3) (exit 1)
+ok    MySQL (local): a dump with a client command fails (4) (exit 1)
+ok    MySQL (local): no client command in a dump ran on this machine
+ok    MySQL (local): backslashes in strings are not commands (exit 0)
+ok    MySQL (local): the table with backslashes in it is counted
+ok    MySQL (local): a system-versioned table is counted
 ok    MySQL (local): no server or sandbox left after the timeout
 ok    MySQL (local): a server runs in the sandbox
 ok    MySQL (local): kill -9 mid-restore: the server is stopped and the sandbox removed
@@ -134,6 +158,6 @@ ok    no sandbox left at the end
 
 engines covered: sqlite (built-in reader) yes; archives (built-in tar, gzip, folder) yes;
   postgres local: yes, local PostgreSQL server: postgres (PostgreSQL) 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1) (/usr/lib/postgresql/16/bin/postgres); mysql/mariadb local: yes, local MariaDB server: /usr/sbin/mariadbd  Ver 10.11.14-MariaDB-0ubuntu0.24.04.1 for debian-linux-gnu on x86_64 (Ubuntu 24.04) (/usr/sbin/mariadbd); docker: SKIPPED (set ALTSQL_RESTORE_TEST_DOCKER=1)
-123 checks passed, 0 failed
+147 checks passed, 0 failed
 all passed
 exit 0

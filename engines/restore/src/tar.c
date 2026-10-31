@@ -149,14 +149,15 @@ static uint64_t tar_num(const uint8_t *p, int n) {
     return v;
 }
 
-/* The path in a pax extended header: records "LEN path=VALUE\n". */
+/* The path in a pax extended header: records "LEN path=VALUE\n", LEN counting the whole
+ * record. Every record must lie inside the header's data; the digits of LEN must too. */
 static void pax_path(const buf *m, char *out, size_t cap) {
     size_t i = 0;
     while (i < m->n) {
         size_t len = 0, j = i;
-        while (j < m->n && m->p[j] >= '0' && m->p[j] <= '9') len = len * 10 + (size_t)(m->p[j++] - '0');
-        if (!len || i + len > m->n) return;
-        if (j < m->n && m->p[j] == ' ' && i + len - j > 6 && !memcmp(m->p + j + 1, "path=", 5)) {
+        while (j < m->n && j - i < 9 && m->p[j] >= '0' && m->p[j] <= '9') len = len * 10 + (size_t)(m->p[j++] - '0');
+        if (!len || len > m->n - i || j >= i + len) return;
+        if (m->p[j] == ' ' && i + len - (j + 1) >= 6 && !memcmp(m->p + j + 1, "path=", 5)) {
             size_t vs = j + 6, vn = i + len - 1 - vs;
             if (vn < cap) { memcpy(out, m->p + vs, vn); out[vn] = 0; }
         }

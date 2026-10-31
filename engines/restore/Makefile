@@ -5,6 +5,7 @@
 #   make test        unit tests, then the end-to-end tests (tests/test_restore.sh)
 #   make sanitize    the same under AddressSanitizer and UBSan
 #   make strict      every warning an error, gcc and clang
+#   make fuzz        damaged SQLite, tar and gzip files through the readers, under ASan and UBSan
 
 CC      ?= cc
 CORE     = ../../core
@@ -47,7 +48,13 @@ strict: | build
 	  $$c $(WARN) -Werror $(DEFS) -O2 $(INC) -o build/strict_$$c altsql_restore.c -lm || exit 1; \
 	done
 
+FUZZ_N ?= 30000
+fuzz: | build
+	$(CC) $(WARN) $(DEFS) $(SAN) $(INC) -o build/fuzz_readers tests/fuzz_readers.c -lm
+	python3 tools/fuzz_seeds.py build/fuzz_seeds
+	./build/fuzz_readers build/fuzz_seeds $(FUZZ_N) 1
+
 clean:
 	rm -rf build
 
-.PHONY: all test sanitize strict clean
+.PHONY: all test sanitize strict fuzz clean

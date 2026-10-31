@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.5.1 (31 October 2026)
+
+Fixes from an independent review of AltSql Restore and from its case studies.
+Each fix comes with a test that failed on 0.5.0.
+
+- **A plain dump could run commands on the machine running the check.**
+  psql and the mysql client run their own backslash commands (`\!` runs a
+  shell command, `\o` and `tee` write files, `source` reads them), on this
+  machine rather than in the sandbox, and as root when altsql-restore runs as
+  root. A dump holding `\! command` ran it, and the run still PASSED. Now
+  psql runs with its commands locked (`\restrict` under a random key; psql
+  13.22, 14.19, 15.14, 16.10, 17.6 or later) after the dump is read for them,
+  with only pg_dump's own `\connect DBNAME` let through, and the mysql client
+  runs with `--binary-mode` and `--local-infile=0`. Such a dump now FAILS.
+  The clients also run as the server's user (`postgres`, `mysql` or
+  `nobody`) when altsql-restore runs as root.
+- **A SQLite file copied in the middle of a write transaction PASSED.** Its
+  invoice table walked to 469 rows where its index held 412, and SQLite's
+  `PRAGMA integrity_check` listed 100 errors (found by the Chinook case study).
+  The reader now checks, as integrity_check does, that every index holds one
+  entry per row of its table (a partial index no more), that rowids rise, and
+  that every page is used by a table, an index, the free list or a pointer
+  map. Such a copy now FAILS.
+- **MariaDB tables WITH SYSTEM VERSIONING were not counted.** MariaDB lists
+  them as `SYSTEM VERSIONED`, not `BASE TABLE`, so their rows were never
+  compared and losing them all never alerted.
+- **The webhook's body and curl's output went to predictable names in the
+  work folder** (`/tmp` by default), through any link someone had put there,
+  so another local user could have the run overwrite a file. They now go in a
+  private folder made with mkdtemp.
+- **The tar reader could read 5 bytes past a pax header** whose data filled
+  its buffer exactly (found by review, confirmed under AddressSanitizer).
+- `make fuzz`: a scripted fuzz pass of the SQLite, tar and gzip readers under
+  ASan and UBSan, logged in `engines/restore/results/fuzz.log`.
+
 ## 0.5.0 (31 October 2026)
 
 - **AltSql Restore, a new module: a backup restore verifier.** Most backups

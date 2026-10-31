@@ -9,6 +9,8 @@
  *   every cut-short gzip file fails (all lengths of the small files, a sample of the large)
  *   flipped bits in a gzip file fail, or change nothing (a header byte no one reads)
  *   unsafe archive paths are refused
+ *   pax records that run past the header's data are not read past it (review, 0.5.1)
+ *   psql's own commands in a plain dump are found, and the copy for psql is right (review, 0.5.1)
  * Run from engines/restore (make test does). */
 #define main altsql_restore_main
 #include "../altsql_restore.c"
@@ -154,6 +156,101 @@ int main(void) {
         g_err[0] = 0; T(safe_path("./a//b/./c", out, sizeof out) == 0 && !strcmp(out, "a/b/c"), "./a//b/./c -> %s", out);
         g_err[0] = 0; T(safe_path("a..b/c", out, sizeof out) == 0 && !strcmp(out, "a..b/c"), "a..b/c kept");
         printf("  archive paths: absolute and \"..\" refused: done\n");
+    }
+
+    /* pax records: a record whose length digits leave it shorter than its own header must not
+     * be read past the data (a 5-byte over-read under ASan before 0.5.1, when the data filled
+     * its buffer exactly: 4096 bytes) */
+    {
+        buf m = { 0 };
+        char out[256] = "", rec[4092];
+        memset(rec, 'a', sizeof rec);
+        memcpy(rec, "4091 c=", 7);
+        rec[4090] = '\n';
+        buf_add(&m, rec, 4091);
+        buf_add(&m, "0001 ", 5);
+        T(m.n == m.cap, "the test needs the data to fill its buffer (%lu of %lu)", (unsigned long)m.n, (unsigned long)m.cap);
+        pax_path(&m, out, sizeof out);
+        T(out[0] == 0, "no path from a broken record");
+        m.n = 0;
+        buf_add(&m, "18 path=a/b/c.txt\n", 18);
+        out[0] = 0;
+        pax_path(&m, out, sizeof out);
+        T(!strcmp(out, "a/b/c.txt"), "a good pax path is read: %s", out);
+        m.n = 0;
+        buf_add(&m, "99999999999999999999 path=x\n", 28);
+        out[0] = 0;
+        pax_path(&m, out, sizeof out);
+        T(out[0] == 0, "a huge record length is refused");
+        buf_free(&m);
+        printf("  pax records: read only inside the header's data: done\n");
+    }
+
+    /* psql's own commands in a plain dump (run on this machine, not in the sandbox, before 0.5.1) */
+    {
+        static const char *const bad[] = {
+            "SELECT 1;\n\\! id\n",
+            "SELECT 1; \\! id\n",
+            "CREATE TABLE t (a int);\n\\o /tmp/x\n",
+            "\\copy t to '/tmp/x'\n",
+            "\\i /etc/passwd\n",
+            "\\connect \"host=127.0.0.1 dbname=x\"\n",
+            "\\connect db otheruser\n",
+            "\\connect postgresql://h/db\n",
+            "\\restrict k \\\\ \\! id\n",
+            "COPY t (a) FROM stdin;\n1\n\\.\n\\! id\n",
+            "SELECT $q$ x $q$; \\! id\n",
+            "SELECT 'it''s'; \\! id\n",
+            "SELECT E'a\\'b'; \\! id\n",
+            NULL };
+        static const char *const good[] = {
+            "SET standard_conforming_strings = on;\nCREATE FUNCTION f() RETURNS text LANGUAGE sql AS $_$ SELECT '\\s\\w' $_$;\n",
+            "INSERT INTO t VALUES ('C:\\new\\! x'), (E'it\\'s \\\\! x'), ($$ \\! $$), ($a$ $$ \\o $a$);\n",
+            "/* \\! /* nested */ \\o */ SELECT 1; -- \\! comment\n",
+            "COPY public.t (a, b) FROM stdin;\n\\N\t\\\\! x\n\\o\tdata\n\\.\nSELECT 1;\n",
+            "SET standard_conforming_strings = off;\nINSERT INTO t VALUES ('a\\' \\! b');\n",
+            "\\connect shop\n\\connect -reuse-previous=on \"dbname='it''s'\"\n",
+            NULL };
+        const char *in = "build/unit_dump.sql", *outp = "build/unit_dump.psql";
+        int i, nb = 0, ng = 0;
+        for (i = 0; bad[i]; i++) {
+            write_file(in, bad[i], strlen(bad[i]));
+            g_err[0] = 0;
+            if (pg_dump_commands(in, NULL, NULL) == 0) printf("  not refused: %s", bad[i]); else nb++;
+        }
+        T(nb == i, "%d of %d dumps with psql commands refused", nb, i);
+        for (i = 0; good[i]; i++) {
+            write_file(in, good[i], strlen(good[i]));
+            g_err[0] = 0;
+            if (pg_dump_commands(in, NULL, NULL) != 0) printf("  refused: %s  (%s)\n", good[i], g_err); else ng++;
+        }
+        T(ng == i, "%d of %d dumps without psql commands accepted", ng, i);
+        {   /* the copy for psql: the dump's own \restrict lines out, ours in, \connect between */
+            const char *d = "\\restrict abc\nSELECT 1;\n\\unrestrict abc\n\\connect shop\n\\restrict abc\nSELECT 'x';\n\\unrestrict abc\n";
+            const char *want = "\\restrict KEY\nSELECT 1;\n\\unrestrict KEY\n\\connect shop\n\\restrict KEY\nSELECT 'x';\n";
+            char *got;
+            write_file(in, d, strlen(d));
+            g_err[0] = 0;
+            T(pg_dump_commands(in, outp, "KEY") == 0, "the copy is written: %s", g_err);
+            got = read_all(outp, NULL);
+            T(got && !strcmp(got, want), "the copy for psql is right:\n%s", got ? got : "(none)");
+            free(got);
+            g_err[0] = 0;
+            T(pg_dump_commands(in, outp, NULL) == 0, "the copy without a key is written");
+            got = read_all(outp, NULL);
+            T(got && !strcmp(got, "SELECT 1;\n\\connect shop\nSELECT 'x';\n"), "without \\restrict, the dump's own lines are left out:\n%s", got ? got : "(none)");
+            free(got);
+        }
+        T(psql_restricts("psql (PostgreSQL) 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1)"), "16.15 has \\restrict");
+        T(psql_restricts("psql (PostgreSQL) 18.0"), "18.0 has \\restrict");
+        T(psql_restricts("psql (PostgreSQL) 13.22"), "13.22 has \\restrict");
+        T(!psql_restricts("psql (PostgreSQL) 16.9"), "16.9 has not");
+        T(!psql_restricts("psql (PostgreSQL) 17.5"), "17.5 has not");
+        T(!psql_restricts("psql (PostgreSQL) 12.22"), "12 has not");
+        T(!psql_restricts(""), "unknown: not assumed");
+        unlink(in);
+        unlink(outp);
+        printf("  psql commands in plain dumps: found and refused, the copy for psql right: done\n");
     }
     printf("%d checks, %d failed\n%s\n", g_checks, g_fails, g_fails ? "FAILED" : "all passed");
     return g_fails ? 1 : 0;

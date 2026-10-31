@@ -8,7 +8,7 @@ records are the same on both, byte for byte, so there's nothing to translate
 in between. The device keeps working and deciding when the network is gone,
 and it sends less.
 
-**Status: 0.5.0, an alpha** (AltSql Core, AltSql DB and AltSql Restore share the version).
+**Status: 0.5.1, an alpha** (AltSql Core, AltSql DB and AltSql Restore share the version).
 Written to prove the design and measure it.
 Everything runs on a PC in simulation; nothing has run on a microcontroller
 or a gateway yet. File formats may still change. Not for production.

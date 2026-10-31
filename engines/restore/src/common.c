@@ -57,7 +57,7 @@ static void buf_need(buf *b, size_t more) {
     while (b->cap < b->n + more) b->cap = b->cap ? b->cap * 2 : 4096;
     b->p = (uint8_t *)xrealloc(b->p, b->cap);
 }
-static void buf_add(buf *b, const void *d, size_t n) { buf_need(b, n); memcpy(b->p + b->n, d, n); b->n += n; }
+static void buf_add(buf *b, const void *d, size_t n) { if (!n) return; buf_need(b, n); memcpy(b->p + b->n, d, n); b->n += n; }
 static void buf_printf(buf *b, const char *fmt, ...) {
     va_list ap;
     int k;
