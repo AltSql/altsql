@@ -22,7 +22,9 @@
   - Sandboxes go away at the end of a run, on SIGINT/SIGTERM/SIGHUP, through
     a watchdog when the run is killed with kill -9, and through a sweep by
     the next run if the watchdog died too.
-  - Tests: 22 unit checks and 121 end-to-end checks, aimed at the promise
+  - PostgreSQL checksums pin the session's time zone and output styles, so
+    the same rows give the same checksum on any machine.
+  - Tests: 22 unit checks and 123 end-to-end checks, aimed at the promise
     (damaged and cut-short backups fail, shrinkage alerts, missing engines
     are NOT VERIFIED, the sandbox always goes), run with local PostgreSQL
     16.15 and MariaDB 10.11.14. Logs in `engines/restore/results/`. CI runs

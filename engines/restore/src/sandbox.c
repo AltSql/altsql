@@ -24,6 +24,7 @@ static volatile pid_t g_child = 0;      /* the command running now (its group)  
 static volatile pid_t g_server = 0;     /* a server started by this run (its group) */
 static int    g_wd_fd = -1;
 static pid_t  g_wd_pid = 0;
+static int    g_in_watchdog = 0;            /* set in the watchdog process                 */
 
 /* ---- running programs ----------------------------------------------------------------- */
 typedef struct runopt {
@@ -74,6 +75,13 @@ static int run_cmd(char *const argv[], const runopt *o) {
     if (o->background) return (int)pid;
     setpgid(pid, pid);
     g_child = pid;
+    if (g_sandbox[0] && !g_in_watchdog) {         /* so the watchdog can stop it if this run dies */
+        char f[AR_PATH], line[32];
+        int fd;
+        snprintf(f, sizeof f, "%s/child", g_sandbox);
+        snprintf(line, sizeof line, "%d\n", (int)pid);
+        if ((fd = open(f, O_WRONLY | O_CREAT | O_TRUNC, 0644)) >= 0) { if (write(fd, line, strlen(line)) < 0) {} close(fd); }
+    }
     for (;;) {
         pid_t r = waitpid(pid, &st, WNOHANG);
         if (r == pid) break;
@@ -83,6 +91,11 @@ static int run_cmd(char *const argv[], const runopt *o) {
             kill(pid, SIGKILL);
             while (waitpid(pid, &st, 0) < 0 && errno == EINTR) {}
             g_child = 0;
+            if (g_sandbox[0] && !g_in_watchdog) {
+                char f[AR_PATH];
+                snprintf(f, sizeof f, "%s/child", g_sandbox);
+                unlink(f);
+            }
             return RUN_TIMEOUT;
         }
         sleep_ms(nap);
@@ -90,6 +103,11 @@ static int run_cmd(char *const argv[], const runopt *o) {
     }
     g_child = 0;
     kill(-pid, SIGKILL);                      /* anything it left running in its group */
+    if (g_sandbox[0] && !g_in_watchdog) {
+        char f[AR_PATH];
+        snprintf(f, sizeof f, "%s/child", g_sandbox);
+        unlink(f);
+    }
     if (WIFEXITED(st)) return WEXITSTATUS(st);
     if (WIFSIGNALED(st)) return 128 + WTERMSIG(st);
     return RUN_SPAWN;
@@ -244,7 +262,15 @@ static int pid_in_sandbox(pid_t pid, const char *dir) {
 /* Stops whatever runs in a sandbox and removes the folder. Safe to call twice. */
 static int sandbox_remove(const char *dir) {
     char p[AR_PATH], *s;
+    int i, rc;
     if (!dir[0]) return 0;
+    /* a command the run was waiting on (initdb, an install, psql), left behind when the run died */
+    snprintf(p, sizeof p, "%s/child", dir);
+    if ((s = read_all(p, NULL)) != NULL) {
+        int pid = atoi(s);
+        if (pid > 1 && pid_in_sandbox((pid_t)pid, dir)) stop_group((pid_t)pid, SIGKILL);
+        free(s);
+    }
     snprintf(p, sizeof p, "%s/server", dir);
     if ((s = read_all(p, NULL)) != NULL) {
         int pid = 0, sig = SIGTERM;
@@ -267,7 +293,9 @@ static int sandbox_remove(const char *dir) {
         }
         free(s);
     }
-    return rmtree(dir);
+    /* a process that was writing there a moment ago may still add a file: try again for a while */
+    for (i = 0; (rc = rmtree(dir)) != 0 && i < 50; i++) sleep_ms(100);
+    return rc;
 }
 
 /* The handler of SIGINT, SIGTERM and SIGHUP: stop what runs, then leave; the watchdog
@@ -288,6 +316,7 @@ static void watchdog_start(const char *dir) {
     if (pid == 0) {
         char c;
         int fd;
+        g_in_watchdog = 1;
         setsid();
         signal(SIGINT, SIG_IGN);
         signal(SIGTERM, SIG_IGN);

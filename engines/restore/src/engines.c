@@ -453,6 +453,13 @@ static int pg_count_db(const rctx *r, const dbs *d, const char *db, int prefix_d
         char *s2, **l2;
         size_t len2;
         int n2;
+        buf full = { 0 };
+        /* the same text for the same rows on any machine: dates, times and floats don't
+         * follow the server's time zone or settings */
+        buf_printf(&full, "SET TimeZone = 'UTC';\nSET DateStyle = 'ISO, YMD';\nSET IntervalStyle = 'postgres';\n"
+                          "SET extra_float_digits = 1;\nSET bytea_output = 'hex';\n%s", buf_str(&q));
+        buf_free(&q);
+        q = full;
         if (client_sql(r, d, db, buf_str(&q), r->timeout, 1) != 0) {
             char t[1024];
             tail_lines(g_out, 4, t, sizeof t);

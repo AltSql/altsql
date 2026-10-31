@@ -50,7 +50,7 @@ altsql-restore --job shop-db --history /var/lib/altsql/restore.db \
   --webhook https://hooks.example.com/backups /backups/shop-latest.sql.gz
 ```
 
-What a report looks like (a PostgreSQL dump, second run, one table shrank):
+What a report looks like (the test dumps: a PostgreSQL dump, second run, one table shrank):
 
 ```
 AltSql Restore report
@@ -58,27 +58,30 @@ AltSql Restore report
 
 Job:            shop-db
 Run:            2
-Date:           2026-10-31 09:21:09 UTC
-Backup:         shop_pg_shrunk.sql
-Backup size:    208,715 bytes
-Backup SHA-256: 5c0d...
-Kind:           PostgreSQL plain dump
-Restored with:  local PostgreSQL server: postgres (PostgreSQL) 16.15 (/usr/lib/postgresql/16/bin/postgres)
-Restore time:   3.1 s
+Date:           2026-10-31 10:28:25 UTC
+Backup:         tests/fixtures/shop_pg_shrunk.sql.gz
+Backup size:    39,345 bytes
+Backup SHA-256: c0fe915486fec534514f7cb47ade5f71d43decef12ff79d4056aac4d7c7b5f5c
+Kind:           PostgreSQL plain dump (gzip)
+Restored with:  local PostgreSQL server: postgres (PostgreSQL) 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1) (/usr/lib/postgresql/16/bin/postgres)
+Restore time:   2.6 s
 Threshold:      alert when an item loses more than 10% of its rows
-Compared with:  run 1 of 2026-10-31 09:21:02 UTC (PASSED)
+Compared with:  run 1 of 2026-10-31 10:28:22 UTC (PASSED)
 
 Table                        rows         previous    change  checksum
-public.audit_log              300              300     +0.0%  e3f8a293e06e0b08  same
+public.audit_log              300              300     +0.0%  db26aea8b0757b88  same
 public.customers            1,200            1,200     +0.0%  ec86aa07f03e8f27  same
-sales.orders                4,000            5,000    -20.0%  00efb449a33d2edc  changed
+sales.orders                4,000            5,000    -20.0%  9ff0cccd8d0974b0  changed
+
+Checks:
+  - made 2 roles the dump hands objects to
 
 Verdict: ALERT
   - sales.orders shrank from 5,000 to 4,000 rows (-20.0%), more than the 10% allowed
 
-Webhook:        sent to https://hooks.example.com/backups
+Webhook:        none set
 Signed off by:  ops on call
-Seal (SHA-256 of the lines above): ce9c6ced...
+Seal (SHA-256 of the lines above): 355f4dd66afb5dc6d461b7abdeacd85557803677d194c1fc951df73973475c82
 ```
 
 ### Options
@@ -148,7 +151,9 @@ threshold. Read the "previous" column, or keep the threshold low.
   row's rowid and record bytes, in key order.
 - **PostgreSQL**: `count(*)`, and the sum of the first 60 bits of
   `md5(row::text)` over the rows, so the order rows come back in doesn't
-  matter. Every table outside `pg_catalog` and `information_schema`.
+  matter. The session pins TimeZone to UTC and the date, interval, float and
+  bytea output styles, so the same rows give the same checksum on any
+  machine. Every table outside `pg_catalog` and `information_schema`.
 - **MySQL**: `COUNT(*)` and `CHECKSUM TABLE`. `CHECKSUM TABLE` values depend
   on the server version, so moving the sandbox to another MySQL version shows
   every table as "changed" once (counts are unaffected).
@@ -208,7 +213,7 @@ folder may not, and the report says so when initdb is refused.
     sh tools/all_logs.sh   every log in results/
     sh tools/bench.sh      timings, three runs each
 
-From the logs in `results/` (31 October 2026, a 2-CPU Linux VM):
+From the logs in `results/` (31 October 2026, a shared 2-CPU Linux VM):
 
 - **test_units.log**: 22 checks. SHA-256 and HMAC-SHA256 against published
   vectors, CRC-32, the inflater on stored, fixed and dynamic Huffman blocks
@@ -216,7 +221,7 @@ From the logs in `results/` (31 October 2026, a 2-CPU Linux VM):
   exactly at the end of the first of two gzip members is a whole gzip file;
   the formats inside catch that one). 2,000 single flipped bits in a gzip
   file: all 2,000 fail.
-- **test_restore.log**: 121 checks, all passed, with a local PostgreSQL 16.15
+- **test_restore.log**: 123 checks, all passed, with a local PostgreSQL 16.15
   and a local MariaDB 10.11.14. SQLite files cut in half, short by one page,
   short by 100 bytes, with a page header overwritten, with a broken header, as
   a cut or damaged `.gz`: all fail. Tar archives cut in the middle, without
@@ -228,13 +233,15 @@ From the logs in `results/` (31 October 2026, a 2-CPU Linux VM):
   alerts, 4% doesn't, a dropped table alerts. PostgreSQL and MySQL with no
   server programs and no Docker: NOT VERIFIED. kill -9 of a run with a live
   PostgreSQL or MariaDB server in its sandbox: server stopped and sandbox
-  removed; the same for SIGTERM and for a restore past `--timeout`; with the
+  removed, and the same for kills at 0.2, 0.7, 1.5 and 3 seconds in, while
+  the database is still being set up; the same for SIGTERM and for a restore past `--timeout`; with the
   watchdog killed too, the next run sweeps the sandbox.
 - **sanitize.log**: all the above under AddressSanitizer and UBSan.
-- **bench.log**: a SQLite file of 1,000,000 rows (45 MB) checked in 0.6 to
-  0.8 s; a tar.gz of 5,000 files in 0.4 s; the 6,500-row PostgreSQL test dump
-  through a fresh local server in 1.5 to 1.8 s, the MySQL one in 2.0 to 2.2 s
-  (most of it starting the server). Three runs each.
+- **bench.log**: a SQLite file of 1,000,000 rows (45 MB) checked in 1.0 to
+  1.4 s; a tar.gz of 5,000 files in 1.4 to 3.8 s; the 6,500-row PostgreSQL
+  test dump through a fresh local server in 3.8 to 5.4 s, the MySQL one in 6.5
+  to 7.1 s (most of it starting the server). Three runs each on a shared
+  2-CPU VM, so the spread is wide.
 
 CI runs `make test` on Linux x86-64, Linux ARM and macOS on every push, with
 whatever servers the runner has, and through Docker on ubuntu-latest. The last

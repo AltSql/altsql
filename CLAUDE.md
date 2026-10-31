@@ -78,7 +78,7 @@ starts but its registry is blocked, so Docker sandboxes can't be tested here.
 - [x] CI: build and test the module; release workflow adds the binary (pushed, not yet run: first CI run comes with the version bump)
 - [x] README (manual), engines/restore/README.md, CHANGELOG, NOTICE/licences check (no new third-party code; THIRD-PARTY-LICENSES.txt names altsql-restore)
 - [x] Review of the diff (no second agent available: a second pass of my own), fixes, logs recorded again. Fixed: pg_dump -Ft was checked as a file archive (now restored with pg_restore); --list created an empty history; history fd leaked into servers; on macOS the sweep could kill a reused pid (now checks the command line with ps). Fuzzed 700 damaged SQLite/tar files under ASan/UBSan: no crash.
-- [ ] Version 0.5.0, push, watch CI and the release, check files and a downloaded binary (version raised and pushed; watching CI)
+- [ ] Version 0.5.0, push, watch CI and the release, check files and a downloaded binary. First CI run (49e6df2): macOS green; on both Linux runners 157 of 159 Restore checks passed (Docker PG and MySQL covered) but a test hard-coded a PostgreSQL checksum that depends on the server's time zone. Fixed by pinning TimeZone/styles in the counting session (a real cross-machine bug) and not hard-coding hashes. Also fixed: kill -9 during MariaDB setup could leave the sandbox (the foreground install wasn't known to the watchdog); every foreground command is now recorded in the sandbox and stopped by the watchdog and sweep, removal retries. Logs recorded again: 123 checks.
 - [ ] Site: post, module list, download/reference pages; check the deploy
 
 Notes from building: when run as root, servers drop to the postgres/mysql

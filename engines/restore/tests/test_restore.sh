@@ -282,7 +282,7 @@ engine_tests() {
         has "same" "$name ($mode): the plain and custom dumps give the same checksums"
         expect 0 "$name ($mode): the tar-format dump (pg_dump -Ft) of the same data passes" --job "$job" --sandbox "$mode" "$FX/shop_pg.tar"
         has "archive dump" "$name ($mode): it is restored as a PostgreSQL dump, not checked as a file archive"
-        has "sales.orders  *5,000  *5,000  *+0.0%  236ccdc635991708  same" "$name ($mode): the tar-format dump gives the same checksums"
+        has "sales.orders  *5,000  *5,000  *+0.0%  [0-9a-f]*  same" "$name ($mode): the tar-format dump gives the same checksums"
         expect 0 "$name ($mode): a dump that makes its own database (pg_dump -C) passes" --job "$job-create" --sandbox "$mode" "$FX/shop_pg_create.sql.gz"
         has "shop:sales.orders  *5,000" "$name ($mode): its tables are counted in the database it made"
         python3 -c "import sys;d=open(sys.argv[1],'rb').read();open(sys.argv[2],'wb').write(d[:len(d)//2])" "$FX/shop_pg.dump" "$T/trunc.dump"
@@ -326,6 +326,18 @@ PY
     sleep 2
     kill -9 $p; wait $p 2> /dev/null
     wait_gone 30 && ok "$name ($mode): kill -9 mid-restore: the server is stopped and the sandbox removed" || bad "$name ($mode): kill -9 left $(servers) servers and $(sandboxes) sandboxes"
+    if [ "$mode" = local ]; then                 # killed at every phase: setup, start, restore
+        left=0
+        for d in 0.2 0.7 1.5 3; do
+            "$R" --history "$T/h_kill.db" --work-dir "$WK" --sandbox local -q "$T/slow.sql" > /dev/null 2>&1 &
+            p=$!
+            wait_sandbox
+            sleep $d
+            kill -9 $p; wait $p 2> /dev/null
+            wait_gone 30 || left=$((left + 1))
+        done
+        [ $left -eq 0 ] && ok "$name ($mode): kill -9 at 0.2, 0.7, 1.5 and 3 s after the sandbox appears: nothing left each time" || bad "$name ($mode): $left of 4 early kills left a server or sandbox"
+    fi
     if [ "$mode" = docker ]; then
         sleep 5
         [ "$(docker ps -a --filter label=altsql-restore.owner --format '{{.Names}}' | grep -c .)" -eq 0 ] && ok "$name ($mode): no container left" || bad "$name ($mode): a container is left"
