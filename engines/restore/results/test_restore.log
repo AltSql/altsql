@@ -1,0 +1,132 @@
+AltSql Restore: end-to-end tests (altsql-restore 0.4.1 (AltSql DB 0.4.1, AltSql Core 0.4.1))
+-- SQLite files (built-in reader)
+ok    a SQLite file restores and passes (exit 0)
+ok    first run passes and becomes the baseline
+ok    orders counted: 5,000 rows
+ok    a WITHOUT ROWID table counted: 50 rows
+ok    the same file gzipped passes (exit 0)
+ok    the checksums match the baseline
+ok    damaged backup trunc_half.db fails (exit 1)
+ok    trunc_half.db: verdict FAILED
+ok    damaged backup trunc_page.db fails (exit 1)
+ok    trunc_page.db: verdict FAILED
+ok    damaged backup trunc_odd.db fails (exit 1)
+ok    trunc_odd.db: verdict FAILED
+ok    damaged backup corrupt_page.db fails (exit 1)
+ok    corrupt_page.db: verdict FAILED
+ok    damaged backup corrupt_header.db fails (exit 1)
+ok    corrupt_header.db: verdict FAILED
+ok    damaged backup trunc.db.gz fails (exit 1)
+ok    trunc.db.gz: verdict FAILED
+ok    damaged backup corrupt.db.gz fails (exit 1)
+ok    corrupt.db.gz: verdict FAILED
+ok    garbage given as SQLite fails (exit 1)
+ok    garbage of unknown kind fails (exit 1)
+ok    it says the kind is unknown
+ok    4% fewer rows is within the 10% threshold (exit 0)
+ok    20% fewer rows alerts (exit 1)
+ok    the alert names the table and the numbers (against the last good run, 4,800)
+ok    the next run alerts again: an alert is not a new baseline (exit 1)
+ok    the same with --max-shrink 25 passes (exit 0)
+ok    a table that disappeared alerts (exit 1)
+ok    the alert says the table is gone
+ok    --accept takes the smaller data as the baseline (exit 0)
+ok    verdict ACCEPTED
+ok    after --accept the smaller file passes (exit 0)
+-- tar archives and folders (built-in tar and gzip readers)
+ok    a tar.gz restores and passes (exit 0)
+ok    files counted per folder: site/www has 40
+ok    the same files as a plain tar pass, same checksums (exit 0)
+ok    the checksums match
+ok    the same files as a folder pass (exit 0)
+ok    half of a folder's files gone alerts (exit 1)
+ok    the alert names the folder
+ok    damaged archive trunc_mid.tar fails (exit 1)
+ok    damaged archive trunc_end.tar fails (exit 1)
+ok    damaged archive trunc.tar.gz fails (exit 1)
+ok    damaged archive corrupt.tar fails (exit 1)
+ok    an archive with a ../ path fails (exit 1)
+ok    it names the unsafe path
+ok    nothing was written outside the sandbox
+-- reports, seals, history, webhook
+ok    a report written to a file (exit 0)
+ok    the signer is named
+ok    the seal of an untouched report matches
+ok    an edited report fails its seal
+ok    a keyed seal (exit 0)
+ok    the report says the seal is keyed
+ok    the keyed seal matches with the key
+ok    the keyed seal fails under another key
+ok    a report into a folder (exit 0)
+ok    the report file is named by job, date and run
+ok    --list shows the runs of a job
+ok    --list shows every run
+ok    an alert posts to the webhook (exit 1)
+ok    the report says the webhook was sent
+ok    the webhook body says ALERT
+ok    a webhook that can't be reached doesn't hide the alert (exit 1)
+ok    the report says the webhook failed
+ok    a passing run sends nothing without --webhook-always (exit 0)
+ok    the report says so
+-- missing engines are NOT VERIFIED
+ok    PostgreSQL dump, no server programs, local only (exit 3)
+ok    verdict NOT VERIFIED
+ok    it never says PASSED
+ok    PostgreSQL dump, no server programs and no Docker (exit 3)
+ok    the report says Docker is missing too
+ok    MySQL dump, no server programs and no Docker (exit 3)
+ok    the report says the server is missing
+ok    the history keeps NOT VERIFIED runs
+-- the sandbox is cleaned up
+ok    no sandbox left after all the runs above
+ok    a run has its sandbox
+ok    kill -9: the watchdog removed the sandbox
+ok    kill -9 of the run and its watchdog leaves a sandbox, for the sweep
+ok    the next run sweeps it (exit 0)
+ok    the report says it removed it
+ok    nothing left after the sweep
+ok    SIGTERM: the sandbox is removed
+-- PostgreSQL
+ok    PostgreSQL (local): the dump restores and passes
+ok    PostgreSQL (local): public.customers has 1,200 rows
+ok    PostgreSQL (local): sales.orders has 5,000 rows
+      restored with: local PostgreSQL server: postgres (PostgreSQL) 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1) (/usr/lib/postgresql/16/bin/postgres)
+ok    PostgreSQL (local): the custom-format dump of the same data passes (exit 0)
+ok    PostgreSQL (local): the plain and custom dumps give the same checksums
+ok    PostgreSQL (local): a cut-short custom dump fails (exit 1)
+ok    PostgreSQL (local): 20% fewer orders alerts (exit 1)
+ok    PostgreSQL (local): the alert names the table
+ok    PostgreSQL (local): a dump cut short fails (exit 1)
+ok    PostgreSQL (local): it says the last line is missing
+ok    PostgreSQL (local): a dump missing only its last lines fails (exit 1)
+ok    PostgreSQL (local): a damaged dump fails at the first error (exit 1)
+ok    PostgreSQL (local): it quotes the error
+ok    PostgreSQL (local): a restore past --timeout is stopped and fails (exit 1)
+ok    PostgreSQL (local): it says the restore was stopped
+ok    PostgreSQL (local): no server or sandbox left after the timeout
+ok    PostgreSQL (local): a server runs in the sandbox
+ok    PostgreSQL (local): kill -9 mid-restore: the server is stopped and the sandbox removed
+-- MySQL / MariaDB
+ok    MySQL (local): the dump restores and passes
+ok    MySQL (local): customers has 1,200 rows
+ok    MySQL (local): orders has 5,000 rows
+      restored with: local MariaDB server: /usr/sbin/mariadbd  Ver 10.11.14-MariaDB-0ubuntu0.24.04.1 for debian-linux-gnu on x86_64 (Ubuntu 24.04) (/usr/sbin/mariadbd)
+ok    MySQL (local): 20% fewer orders alerts (exit 1)
+ok    MySQL (local): the alert names the table
+ok    MySQL (local): a dump cut short fails (exit 1)
+ok    MySQL (local): it says the last line is missing
+ok    MySQL (local): a dump missing only its last lines fails (exit 1)
+ok    MySQL (local): a damaged dump fails at the first error (exit 1)
+ok    MySQL (local): it quotes the error
+ok    MySQL (local): a restore past --timeout is stopped and fails (exit 1)
+ok    MySQL (local): it says the restore was stopped
+ok    MySQL (local): no server or sandbox left after the timeout
+ok    MySQL (local): a server runs in the sandbox
+ok    MySQL (local): kill -9 mid-restore: the server is stopped and the sandbox removed
+ok    no sandbox left at the end
+
+engines covered: sqlite (built-in reader) yes; archives (built-in tar, gzip, folder) yes;
+  postgres local: yes, local PostgreSQL server: postgres (PostgreSQL) 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1) (/usr/lib/postgresql/16/bin/postgres); mysql/mariadb local: yes, local MariaDB server: /usr/sbin/mariadbd  Ver 10.11.14-MariaDB-0ubuntu0.24.04.1 for debian-linux-gnu on x86_64 (Ubuntu 24.04) (/usr/sbin/mariadbd); docker: SKIPPED (set ALTSQL_RESTORE_TEST_DOCKER=1)
+116 checks passed, 0 failed
+all passed
+exit 0

@@ -1,11 +1,11 @@
 name: release
 
-# Builds the AltSql shells, checks each build, and publishes them with a
-# release.
+# Builds the AltSql shells and altsql-restore, checks each build, and publishes
+# them with a release.
 #
 # Releases go out on their own. When the test workflow passes on a push to
 # main and ALTSQL_DB_VERSION in engines/db/altsql_db.h has no tag yet, this
-# workflow builds the two shells, altsql and altsql-db, from that commit for
+# workflow builds the two shells, altsql and altsql-db, and altsql-restore from that commit for
 # Linux (x86-64 and ARM, static) and macOS (Apple silicon and Intel), runs the
 # end-to-end shell test on each build its runner can execute, then tags the
 # commit vX.Y.Z and publishes the release "AltSql vX.Y.Z" with the archives,
@@ -126,10 +126,14 @@ jobs:
           mkdir pkg
           musl-gcc $CFLAGS_COMMON -static -s -Icore/dist -o pkg/altsql core/tools/cli.c
           musl-gcc $CFLAGS_COMMON -static -s -Icore/dist -Iengines/db -o pkg/altsql-db engines/db/tools/shell.c -lm
-          file pkg/altsql pkg/altsql-db
+          musl-gcc $CFLAGS_COMMON -static -s -Icore/dist -Iengines/db -Iengines/restore -o pkg/altsql-restore engines/restore/altsql_restore.c -lm
+          file pkg/altsql pkg/altsql-db pkg/altsql-restore
           pkg/altsql-db --version
+          pkg/altsql-restore --version
       - name: End-to-end test of the built shells
         run: ALTSQL_SHELL=$PWD/pkg/altsql ALTSQL_DB_SHELL=$PWD/pkg/altsql-db sh engines/db/tests/test_shell.sh
+      - name: Smoke test of the built altsql-restore
+        run: sh engines/restore/tests/smoke.sh $PWD/pkg/altsql-restore
       - name: Package, with the notice of the musl the binaries link
         run: |
           cp LICENSE NOTICE README.md pkg/
@@ -169,8 +173,10 @@ jobs:
           mkdir pkg
           clang -arch ${{ matrix.clang }} $CFLAGS_COMMON -D_DARWIN_C_SOURCE -Icore/dist -o pkg/altsql core/tools/cli.c
           clang -arch ${{ matrix.clang }} $CFLAGS_COMMON -D_DARWIN_C_SOURCE -Icore/dist -Iengines/db -o pkg/altsql-db engines/db/tools/shell.c -lm
-          strip pkg/altsql pkg/altsql-db
-          file pkg/altsql pkg/altsql-db
+          clang -arch ${{ matrix.clang }} $CFLAGS_COMMON -D_DARWIN_C_SOURCE -Icore/dist -Iengines/db -Iengines/restore -o pkg/altsql-restore engines/restore/altsql_restore.c -lm
+          strip pkg/altsql pkg/altsql-db pkg/altsql-restore
+          file pkg/altsql pkg/altsql-db pkg/altsql-restore
+          file pkg/altsql-restore | grep -q '${{ matrix.clang }}'
           file pkg/altsql-db | grep -q '${{ matrix.clang }}'
       - name: End-to-end test of the built shells
         run: |
@@ -179,6 +185,7 @@ jobs:
             exit 0
           fi
           ALTSQL_SHELL=$PWD/pkg/altsql ALTSQL_DB_SHELL=$PWD/pkg/altsql-db sh engines/db/tests/test_shell.sh
+          sh engines/restore/tests/smoke.sh $PWD/pkg/altsql-restore
       - name: Package
         run: |
           cp LICENSE NOTICE README.md THIRD-PARTY-LICENSES.txt pkg/
@@ -233,7 +240,7 @@ jobs:
             echo "| macOS, Apple silicon | altsql_darwin_arm64.tar.gz |"
             echo "| macOS, Intel | altsql_darwin_amd64.tar.gz |"
             echo
-            echo "Each archive holds the two shells, \`altsql\` for a device's database and \`altsql-db\` for a gateway's, with README.md, LICENSE, NOTICE and THIRD-PARTY-LICENSES.txt (musl's MIT license, for the static Linux binaries). SHA256SUMS lists the checksums. The macOS binaries aren't signed by Apple, so macOS may ask you to allow them the first time, or run \`xattr -d com.apple.quarantine\` on each. AltSql is an alpha: file formats may still change, and it isn't for production."
+            echo "Each archive holds the two shells, \`altsql\` for a device's database and \`altsql-db\` for a gateway's, and \`altsql-restore\` (AltSql Restore, the backup restore verifier), with README.md, LICENSE, NOTICE and THIRD-PARTY-LICENSES.txt (musl's MIT license, for the static Linux binaries). SHA256SUMS lists the checksums. The macOS binaries aren't signed by Apple, so macOS may ask you to allow them the first time, or run \`xattr -d com.apple.quarantine\` on each. AltSql is an alpha: file formats may still change, and it isn't for production."
           } > notes.md
           cat notes.md
       - name: Tag the commit and publish the release, binaries attached

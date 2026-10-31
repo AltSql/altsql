@@ -455,6 +455,27 @@ int main(int argc, char **argv) {
                 (!strcmp(kind, "folder") ? dir_restore(o.backup, dst, "", &files) : tar_restore(o.backup, dst, &files, &gz)) == 0) {
                 long nf = 0, q;
                 for (q = 0; q < files.n; q++) if (files.v[q].type != 'd') nf++;
+                if (!strcmp(kind, "folder")) {          /* named as tar would name them: site/www/... */
+                    char top[AR_PATH];
+                    const char *bn;
+                    size_t bl;
+                    {                                     /* the folder's own name, "." included */
+                        char here[AR_PATH];
+                        snprintf(top, sizeof top, "%s", o.backup);
+                        if (getcwd(here, sizeof here) && chdir(o.backup) == 0) {
+                            if (!getcwd(top, sizeof top)) snprintf(top, sizeof top, "%s", o.backup);
+                            if (chdir(here)) { seterr("cannot return to %s", here); restore_rc = ENG_FAILED; }
+                        }
+                    }
+                    for (bl = strlen(top); bl > 1 && top[bl - 1] == '/'; bl--) top[bl - 1] = 0;
+                    bn = base_name(top);
+                    for (q = 0; q < files.n; q++) {
+                        char np[AR_PATH];
+                        snprintf(np, sizeof np, "%s/%s", bn, files.v[q].path);
+                        free(files.v[q].path);
+                        files.v[q].path = xstrdup(np);
+                    }
+                }
                 fent_items(&files, &cur);
                 strs_addf(&notes, "%s entries %s into the sandbox, every file hashed with SHA-256 as it was written",
                           commas(nf), !strcmp(kind, "folder") ? "copied" : "unpacked");

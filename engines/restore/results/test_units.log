@@ -1,0 +1,10 @@
+AltSql Restore 0.4.1: unit tests
+  SHA-256, HMAC-SHA256 and CRC-32 test vectors: done
+  inflate: stored, fixed and dynamic Huffman blocks, two members: done
+  a cut at the end of the first of two gzip members (74 bytes) is a whole gzip file, as expected
+  cut-short gzip files: 2756 lengths tried, 0 unpacked without an error
+  flipped bits in a gzip file: 2000 tried, 2000 failed with an error, 0 changed nothing (header bytes), 0 gave other data silently
+  archive paths: absolute and ".." refused: done
+22 checks, 0 failed
+all passed
+exit 0

@@ -191,7 +191,7 @@ static int pid_alive(pid_t pid) {
 
 /* Stops the process group of a server and waits for it, up to a few seconds. */
 static void stop_group(pid_t pid, int sig) {
-    double end = now_mono() + 15;
+    double end = now_mono() + (sig == SIGKILL ? 2 : 5);   /* a throwaway server: no long goodbyes */
     int st;
     if (pid <= 1) return;
     kill(-pid, sig);
@@ -228,7 +228,8 @@ static int sandbox_remove(const char *dir) {
     snprintf(p, sizeof p, "%s/server", dir);
     if ((s = read_all(p, NULL)) != NULL) {
         int pid = 0, sig = SIGTERM;
-        if (sscanf(s, "%d %d", &pid, &sig) >= 1 && pid > 1 && pid_in_sandbox((pid_t)pid, dir)) stop_group((pid_t)pid, sig);
+        (void)sig;                                /* left by a run that's gone: nothing to save */
+        if (sscanf(s, "%d %d", &pid, &sig) >= 1 && pid > 1 && pid_in_sandbox((pid_t)pid, dir)) stop_group((pid_t)pid, SIGKILL);
         free(s);
     }
     snprintf(p, sizeof p, "%s/container", dir);

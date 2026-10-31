@@ -30,7 +30,7 @@ build/altsql-restore: $(SRC) | build
 	$(CC) $(WARN) $(DEFS) -O2 $(INC) -o $@ altsql_restore.c -lm
 
 build/test_units: tests/test_units.c $(SRC) | build
-	$(CC) $(WARN) $(DEFS) -O1 -g $(INC) -o $@ tests/test_units.c -lm
+	$(CC) $(WARN) $(DEFS) -O2 -g $(INC) -o $@ tests/test_units.c -lm
 
 test: build/altsql-restore build/test_units
 	./build/test_units

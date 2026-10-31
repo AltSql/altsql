@@ -74,8 +74,8 @@ starts but its registry is blocked, so Docker sandboxes can't be tested here.
 - [x] SQLite file reader
 - [x] History in AltSql DB, comparison, report, seal, webhook (webhook not yet tested)
 - [x] Sandbox, clean-up and stale sweep; Postgres and MySQL via local binaries or Docker (checked by hand: PG 16 and MariaDB 10.11 local; kill -9 with a live server cleaned up by the watchdog)
-- [ ] Tests and failure tests; results logs
-- [ ] CI: build and test the module; release workflow adds the binary
+- [x] Tests and failure tests; results logs (`engines/restore/results/`, via `tools/all_logs.sh`: unit 22 checks, end-to-end 116 checks with local PG 16 and MariaDB 10.11)
+- [x] CI: build and test the module; release workflow adds the binary (pushed, not yet run: first CI run comes with the version bump)
 - [ ] README (manual), engines/restore/README.md, CHANGELOG, NOTICE/licences check
 - [ ] Independent review of the diff, fixes, logs recorded again
 - [ ] Version 0.5.0, push, watch CI and the release, check files and a downloaded binary

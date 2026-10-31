@@ -1,8 +1,11 @@
 name: test
 
 # Every push to main and every pull request: AltSql Core's tests, AltSql DB's
-# tests and the end-to-end test of both shells, on Linux x86-64, Linux ARM and
-# macOS. A green run on a push to main is what the release workflow waits for.
+# tests, the end-to-end test of both shells and AltSql Restore's tests, on Linux
+# x86-64, Linux ARM and macOS. A green run on a push to main is what the release
+# workflow waits for. AltSql Restore restores PostgreSQL and MySQL dumps into the
+# servers the runner has installed, when they start; on ubuntu-latest it also
+# tests the same through Docker. Its log ends with the engines it covered.
 
 on:
   push:
@@ -27,3 +30,7 @@ jobs:
         run: bash .github/ci-run.sh make -C engines/db test
       - name: Both shells, end to end
         run: bash .github/ci-run.sh make -C engines/db test-shell
+      - name: AltSql Restore
+        env:
+          ALTSQL_RESTORE_TEST_DOCKER: ${{ matrix.os == 'ubuntu-latest' && '1' || '0' }}
+        run: bash .github/ci-run.sh make -C engines/restore test

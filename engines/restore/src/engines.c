@@ -223,7 +223,12 @@ static int pg_start_local(const rctx *r, dbs *d) {
     strs_add(&a, "--auth=trust"); strs_add(&a, "-E"); strs_add(&a, "UTF8"); strs_add(&a, "--locale=C"); strs_add(&a, "-N");
     rc = run_list(&a, &o);
     strs_free(&a);
-    if (rc != 0) { char t[1024]; tail_lines(log, 4, t, sizeof t); return seterr("initdb failed (%d): %s", rc, t); }
+    if (rc != 0) {
+        char t[1024];
+        tail_lines(log, 4, t, sizeof t);
+        return seterr("initdb failed (%d): %s%s", rc, t, d->drop ? " (running as root, the server runs as the user "
+                      "postgres or nobody, which must be able to enter --work-dir)" : "");
+    }
     sbpath(r, "server.log", log);
     o.out = log;
     o.timeout = 0;
@@ -280,7 +285,12 @@ static int my_start_local(const rctx *r, dbs *d) {
     if (d->drop) { snprintf(arg, sizeof arg, "--user=%s", d->user); strs_add(&a, arg); }
     rc = run_list(&a, &o);
     strs_free(&a);
-    if (rc != 0) { char t[1024]; tail_lines(log, 4, t, sizeof t); return seterr("the database setup failed (%d): %s", rc, t); }
+    if (rc != 0) {
+        char t[1024];
+        tail_lines(log, 4, t, sizeof t);
+        return seterr("the database setup failed (%d): %s%s", rc, t, d->drop ? " (running as root, the server runs as the user "
+                      "mysql or nobody, which must be able to enter --work-dir)" : "");
+    }
     sbpath(r, "server.log", outlog);
     o.out = outlog;
     o.timeout = 0;
