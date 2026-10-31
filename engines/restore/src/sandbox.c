@@ -206,14 +206,34 @@ static void stop_group(pid_t pid, int sig) {
     while (waitpid(pid, &st, WNOHANG) > 0) {}
 }
 
-/* Is pid a server of this sandbox? On Linux its command line names the sandbox; elsewhere
- * the pid is trusted. */
+static int run_cmd(char *const argv[], const runopt *o);
+
+/* Is pid a server of this sandbox? Its command line names the sandbox's folder (the data
+ * directory is inside it): read from /proc on Linux, from ps elsewhere. A pid that has been
+ * reused by another process since is left alone. A Docker container has no pid here. */
 static int pid_in_sandbox(pid_t pid, const char *dir) {
-    char p[64], *cmd;
+    char p[AR_PATH], *cmd;
     size_t n, i;
     int hit;
+    if (!pid_alive(pid)) return 0;
+    if (!is_dir("/proc/self")) {
+        char out[AR_PATH], pidarg[32];
+        char *argv[6];
+        runopt o;
+        memset(&o, 0, sizeof o);
+        snprintf(out, sizeof out, "%s/ps.out", dir);
+        snprintf(pidarg, sizeof pidarg, "%d", (int)pid);
+        argv[0] = (char *)"/bin/ps"; argv[1] = (char *)"-p"; argv[2] = pidarg;
+        argv[3] = (char *)"-o"; argv[4] = (char *)"args="; argv[5] = NULL;
+        o.out = out;
+        o.timeout = 10;
+        if (run_cmd(argv, &o) != 0) return 0;
+        if (!(cmd = read_all(out, &n))) return 0;
+        hit = strstr(cmd, dir) != NULL;
+        free(cmd);
+        return hit;
+    }
     snprintf(p, sizeof p, "/proc/%d/cmdline", (int)pid);
-    if (!is_dir("/proc/self")) return pid_alive(pid);
     if (!(cmd = read_all(p, &n))) return 0;
     for (i = 0; i < n; i++) if (!cmd[i]) cmd[i] = ' ';
     hit = strstr(cmd, dir) != NULL;

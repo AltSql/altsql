@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.5.0 (31 October 2026)
+
+- **AltSql Restore, a new module: a backup restore verifier.** Most backups
+  are never restored until the day they're needed. `altsql-restore` takes
+  last night's backup, restores it into a throwaway sandbox, counts the rows
+  of every table, takes checksums, and compares them with the last good run.
+  It alerts (exit status 1, a clear report, an optional webhook) when the
+  restore fails or a table shrank past `--max-shrink` (10% by default), and
+  says NOT VERIFIED (exit status 3) when no engine could restore it, never
+  passing it silently. Each run writes a dated report with a SHA-256 or
+  HMAC-SHA256 seal, and `--verify-report` checks one later. Manual:
+  [engines/restore/README.md](engines/restore/README.md).
+  - SQLite files, tar archives (gzip or not) and folders need no other
+    software: built-in readers of the SQLite file format, tar and gzip.
+  - PostgreSQL dumps (pg_dump plain, custom and tar formats, with or without
+    -C) and MySQL or MariaDB dumps restore into a throwaway server started
+    from the local server programs, or from Docker.
+  - The history of runs is an AltSql DB file; the `altsql-db` shell can
+    query it with SQL.
+  - Sandboxes go away at the end of a run, on SIGINT/SIGTERM/SIGHUP, through
+    a watchdog when the run is killed with kill -9, and through a sweep by
+    the next run if the watchdog died too.
+  - Tests: 22 unit checks and 121 end-to-end checks, aimed at the promise
+    (damaged and cut-short backups fail, shrinkage alerts, missing engines
+    are NOT VERIFIED, the sandbox always goes), run with local PostgreSQL
+    16.15 and MariaDB 10.11.14. Logs in `engines/restore/results/`. CI runs
+    them on Linux x86-64, Linux ARM and macOS, and through Docker on
+    ubuntu-latest.
+- **Release archives** now hold `altsql-restore` beside the two shells,
+  smoke-tested on every build before the release goes out.
+- AltSql Core and AltSql DB are unchanged apart from the version; file format
+  version 3 is unchanged. The browser demo is still the 0.4.1 build.
+
 ## 0.4.1 (8 October 2026)
 
 - **musl's license in the release archives.** The static Linux binaries link

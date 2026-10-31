@@ -4,12 +4,15 @@ Third-party licenses
 AltSql's own code is under the Apache License 2.0 (LICENSE). The only
 third-party code in the release binaries is musl libc, which the Linux
 binaries link statically. The macOS binaries link only Apple's system
-library. The source in this repository holds no third-party code.
+library. The source in this repository holds no third-party code: AltSql
+Restore's SQLite, tar and gzip readers, SHA-256 and HMAC are AltSql's own,
+written from the published formats.
 
 musl libc
 ---------
 
-Linked statically into the Linux release binaries (altsql and altsql-db).
+Linked statically into the Linux release binaries (altsql, altsql-db and
+altsql-restore).
 https://musl.libc.org/
 
 musl as a whole is licensed under the following standard MIT license:

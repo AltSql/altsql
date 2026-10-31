@@ -7,7 +7,8 @@ how that works, for whoever (person or Claude session) works on this repo next.
 
 1. Raise the version in both places, to the same X.Y.Z:
    `#define ALTSQL_DB_VERSION` in `engines/db/altsql_db.h` and
-   `#define ALTSQL_VERSION` in `core/src/altsql.h`. Then run
+   `#define ALTSQL_VERSION` in `core/src/altsql.h` (AltSql Restore takes
+   AltSql DB's version). Then run
    `make -C core dist/altsql.h` and commit the regenerated single header too.
    The plan step refuses a commit where the three disagree.
 2. Add a `## X.Y.Z (D Month YYYY)` section at the top of `CHANGELOG.md`. It becomes the release notes.
@@ -32,12 +33,14 @@ is started by a finished `test` run, not by the push itself.
   run for the newer commit decides). Reads the version from `engines/db/altsql_db.h`.
   Stops quietly if `vX.Y.Z` is already a tag. Fails loudly if the version is
   lower than the newest tag.
-- **linux.** Builds both shells, `altsql` and `altsql-db`, static with musl,
-  on x86-64 and ARM runners, from that exact commit. Then runs the end-to-end
-  shell test, `engines/db/tests/test_shell.sh`, against the built pair.
-- **macos.** Builds both shells with Apple's clang for Apple silicon and Intel,
+- **linux.** Builds both shells, `altsql` and `altsql-db`, and
+  `altsql-restore`, static with musl, on x86-64 and ARM runners, from that
+  exact commit. Then runs the end-to-end shell test,
+  `engines/db/tests/test_shell.sh`, against the built pair, and
+  `engines/restore/tests/smoke.sh` against `altsql-restore`.
+- **macos.** Builds both shells and `altsql-restore` with Apple's clang for Apple silicon and Intel,
   with `-D_DARWIN_C_SOURCE` so a sync uses `F_FULLFSYNC`. Runs the same shell
-  test on each build the runner can execute; the Intel build gets a format
+  test and smoke test on each build the runner can execute; the Intel build gets a format
   check when the runner has no Rosetta.
 - **release.** Runs only after every build and check passed. Creates the tag
   and the release in one step with `gh release create --target <commit>`,

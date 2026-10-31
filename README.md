@@ -8,7 +8,7 @@ records are the same on both, byte for byte, so there's nothing to translate
 in between. The device keeps working and deciding when the network is gone,
 and it sends less.
 
-**Status: 0.4.1, an alpha** (AltSql Core and AltSql DB share the version).
+**Status: 0.5.0, an alpha** (AltSql Core, AltSql DB and AltSql Restore share the version).
 Written to prove the design and measure it.
 Everything runs on a PC in simulation; nothing has run on a microcontroller
 or a gateway yet. File formats may still change. Not for production.
@@ -19,10 +19,12 @@ or a gateway yet. File formats may still change. Not for production.
 |---|---|
 | [`core/`](core/) | **AltSql Core**, the engine: key-value and time-series on the device, SQL on the gateway. The whole engine is one C99 file, `core/dist/altsql.h`. |
 | [`engines/db/`](engines/db/) | **AltSql DB**, the database for a gateway that serves a whole fleet: one file for every device, read by key with no SQL step, or with SQL, with secondary indexes and statement savepoints. Built on AltSql Core. |
+| [`engines/restore/`](engines/restore/) | **AltSql Restore**, a module: a backup restore verifier. It restores last night's PostgreSQL or MySQL dump, SQLite file or file archive into a throwaway sandbox, counts and checksums every table, compares with the last good run (kept in an AltSql DB file), and alerts when the restore fails or data shrank. Each run writes a sealed report. |
 | [`demos/db/`](demos/db/) | The AltSql DB browser demo. Open `demos/db/app/index.html`; it runs straight from the folder. |
 
 Two command-line shells come with them: `altsql` for a device's database
 (`core/tools/cli.c`) and `altsql-db` for a gateway's (`engines/db/tools/shell.c`).
+The release archives also hold `altsql-restore`, AltSql Restore's program.
 Ready-built binaries for Linux (x86-64 and ARM64) and macOS (Apple silicon
 and Intel) are on the [latest release](https://github.com/AltSql/altsql/releases/latest),
 with the release notes. For Linux x86-64, say:
@@ -39,6 +41,7 @@ Linux or macOS, gcc or clang:
 ```sh
 cd core && make test
 cd engines/db && make test
+cd engines/restore && make test
 ```
 
 The shells: `cd core && make build/altsql`, then `cd engines/db && make shell`.
@@ -46,8 +49,21 @@ The shells: `cd core && make build/altsql`, then `cd engines/db && make shell`.
 gateway file with both shells and checks every answer.
 
 Each folder's README says what each test checks, what was measured and the
-known limits. The logs behind the numbers are in `core/results/alpha/` and
-`engines/db/results/`.
+known limits. The logs behind the numbers are in `core/results/alpha/`,
+`engines/db/results/` and `engines/restore/results/`.
+
+## AltSql Restore in short
+
+```sh
+altsql-restore --job shop-db --report-dir /var/log/altsql-restore /backups/shop-latest.sql.gz
+```
+
+Exit status 0 means the backup restored and no table shrank past the threshold
+(10% by default); 1 means the restore failed or data shrank; 3 means it could
+not be verified here (no PostgreSQL or MySQL server and no Docker), which it
+never reports as a pass. SQLite files, tar archives and folders need no other
+software. The whole manual, with every option, is
+[engines/restore/README.md](engines/restore/README.md).
 
 ## Try it in the browser
 

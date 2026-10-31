@@ -1,4 +1,4 @@
-AltSql Restore 0.4.1: unit tests
+AltSql Restore 0.5.0: unit tests
   SHA-256, HMAC-SHA256 and CRC-32 test vectors: done
   inflate: stored, fixed and dynamic Huffman blocks, two members: done
   a cut at the end of the first of two gzip members (74 bytes) is a whole gzip file, as expected

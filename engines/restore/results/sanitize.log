@@ -1,4 +1,4 @@
-AltSql Restore 0.4.1: unit tests
+AltSql Restore 0.5.0: unit tests
   SHA-256, HMAC-SHA256 and CRC-32 test vectors: done
   inflate: stored, fixed and dynamic Huffman blocks, two members: done
   a cut at the end of the first of two gzip members (74 bytes) is a whole gzip file, as expected
@@ -7,7 +7,7 @@ AltSql Restore 0.4.1: unit tests
   archive paths: absolute and ".." refused: done
 22 checks, 0 failed
 all passed
-AltSql Restore: end-to-end tests (altsql-restore 0.4.1 (AltSql DB 0.4.1, AltSql Core 0.4.1))
+AltSql Restore: end-to-end tests (altsql-restore 0.5.0 (AltSql DB 0.5.0, AltSql Core 0.5.0))
 -- SQLite files (built-in reader)
 ok    a SQLite file restores and passes (exit 0)
 ok    first run passes and becomes the baseline
@@ -102,6 +102,11 @@ ok    PostgreSQL (local): sales.orders has 5,000 rows
       restored with: local PostgreSQL server: postgres (PostgreSQL) 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1) (/usr/lib/postgresql/16/bin/postgres)
 ok    PostgreSQL (local): the custom-format dump of the same data passes (exit 0)
 ok    PostgreSQL (local): the plain and custom dumps give the same checksums
+ok    PostgreSQL (local): the tar-format dump (pg_dump -Ft) of the same data passes (exit 0)
+ok    PostgreSQL (local): it is restored as a PostgreSQL dump, not checked as a file archive
+ok    PostgreSQL (local): the tar-format dump gives the same checksums
+ok    PostgreSQL (local): a dump that makes its own database (pg_dump -C) passes (exit 0)
+ok    PostgreSQL (local): its tables are counted in the database it made
 ok    PostgreSQL (local): a cut-short custom dump fails (exit 1)
 ok    PostgreSQL (local): 20% fewer orders alerts (exit 1)
 ok    PostgreSQL (local): the alert names the table
@@ -136,6 +141,6 @@ ok    no sandbox left at the end
 
 engines covered: sqlite (built-in reader) yes; archives (built-in tar, gzip, folder) yes;
   postgres local: yes, local PostgreSQL server: postgres (PostgreSQL) 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1) (/usr/lib/postgresql/16/bin/postgres); mysql/mariadb local: yes, local MariaDB server: /usr/sbin/mariadbd  Ver 10.11.14-MariaDB-0ubuntu0.24.04.1 for debian-linux-gnu on x86_64 (Ubuntu 24.04) (/usr/sbin/mariadbd); docker: SKIPPED (set ALTSQL_RESTORE_TEST_DOCKER=1)
-116 checks passed, 0 failed
+121 checks passed, 0 failed
 all passed
 exit 0

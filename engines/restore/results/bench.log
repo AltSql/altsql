@@ -1,16 +1,16 @@
 machine: Linux x86_64, Intel(R) Xeon(R) Processor @ 2.80GHz, 2 CPUs
-altsql-restore: altsql-restore 0.4.1 (AltSql DB 0.4.1, AltSql Core 0.4.1), 320656 bytes
-sizes: SQLite file 45432832 bytes; tar.gz 168906 bytes
-SQLite file, 1,000,000 rows                    run 1:   1.79 s (exit 0)
-SQLite file, 1,000,000 rows                    run 2:   2.07 s (exit 0)
-SQLite file, 1,000,000 rows                    run 3:   1.31 s (exit 0)
-tar.gz, 5,000 files in 50 folders              run 1:   0.83 s (exit 0)
-tar.gz, 5,000 files in 50 folders              run 2:   1.69 s (exit 0)
-tar.gz, 5,000 files in 50 folders              run 3:   1.23 s (exit 0)
-PostgreSQL plain dump, 6,500 rows (local)      run 1:   3.47 s (exit 0)
-PostgreSQL plain dump, 6,500 rows (local)      run 2:   2.91 s (exit 0)
-PostgreSQL plain dump, 6,500 rows (local)      run 3:   4.02 s (exit 0)
-MySQL dump, 6,500 rows (local)                 run 1:   8.46 s (exit 0)
-MySQL dump, 6,500 rows (local)                 run 2:   6.73 s (exit 0)
-MySQL dump, 6,500 rows (local)                 run 3:   5.50 s (exit 0)
+altsql-restore: altsql-restore 0.5.0 (AltSql DB 0.5.0, AltSql Core 0.5.0), 320656 bytes
+sizes: SQLite file 45432832 bytes; tar.gz 166527 bytes
+SQLite file, 1,000,000 rows                    run 1:   0.60 s (exit 0)
+SQLite file, 1,000,000 rows                    run 2:   0.60 s (exit 0)
+SQLite file, 1,000,000 rows                    run 3:   0.83 s (exit 0)
+tar.gz, 5,000 files in 50 folders              run 1:   0.40 s (exit 0)
+tar.gz, 5,000 files in 50 folders              run 2:   0.37 s (exit 0)
+tar.gz, 5,000 files in 50 folders              run 3:   0.37 s (exit 0)
+PostgreSQL plain dump, 6,500 rows (local)      run 1:   1.60 s (exit 0)
+PostgreSQL plain dump, 6,500 rows (local)      run 2:   1.47 s (exit 0)
+PostgreSQL plain dump, 6,500 rows (local)      run 3:   1.79 s (exit 0)
+MySQL dump, 6,500 rows (local)                 run 1:   2.00 s (exit 0)
+MySQL dump, 6,500 rows (local)                 run 2:   2.12 s (exit 0)
+MySQL dump, 6,500 rows (local)                 run 3:   2.22 s (exit 0)
 exit 0

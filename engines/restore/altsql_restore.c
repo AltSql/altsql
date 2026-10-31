@@ -82,12 +82,14 @@ static void usage(FILE *f) {
 static uint8_t *g_dbmem;
 typedef struct hist { altsql_db *db; altsql_db_posix px; altsql_db_file file; } hist;
 
-static int hist_open(hist *h, const char *path) {
+static int hist_open(hist *h, const char *path, int create) {
     altsql_db_config cfg;
     altsql_db_tableinfo ti;
-    int rc = altsql_db_posix_open(&h->file, &h->px, path, 1);
+    int rc = altsql_db_posix_open(&h->file, &h->px, path, create);
     if (rc == ALTSQL_DB_BUSY) return seterr("the history %s is in use by another run", path);
+    if (rc == ALTSQL_NOTFOUND) return seterr("there is no history %s yet", path);
     if (rc) return seterr("cannot open the history %s: %s", path, strerror(errno));
+    fcntl(h->px.fd, F_SETFD, FD_CLOEXEC);          /* not for the servers and clients a run starts */
     g_dbmem = (uint8_t *)xmalloc(4u << 20);
     memset(&cfg, 0, sizeof cfg);
     cfg.mem = g_dbmem;
@@ -200,10 +202,10 @@ static int list_runs(const opts *o) {
     altsql_value key[1];
     int rc;
     memset(&h, 0, sizeof h);
-    if (hist_open(&h, o->history)) { fprintf(stderr, "altsql-restore: %s\n", g_err); return EXIT_USAGE; }
+    if (hist_open(&h, o->history, 0)) { fprintf(stderr, "altsql-restore: %s\n", g_err); return EXIT_USAGE; }
     if (o->list_job) vtext(&key[0], o->list_job);
     rc = altsql_db_row_seek(&c, h.db, "runs", key, o->list_job ? 1 : 0);
-    printf("%-20s %5s  %-20s  %-12s  %-24s  %s\n", "job", "run", "date (UTC)", "verdict", "kind", "backup");
+    printf("%-20s %5s  %-20s  %-12s  %-8s  %-16s  %s\n", "job", "run", "date (UTC)", "verdict", "kind", "report seal", "backup");
     while (rc == 0) {
         altsql_value v[8];
         char job[256], when[32];
@@ -214,7 +216,7 @@ static int list_runs(const opts *o) {
         if (read_run(&c, &r)) break;
         t = (time_t)r.at;
         strftime(when, sizeof when, "%Y-%m-%d %H:%M:%S", gmtime(&t));
-        printf("%-20s %5lld  %-20s  %-12s  %-24s  %s\n", job, (long long)r.run, when, r.verdict, r.kind, r.backup);
+        printf("%-20s %5lld  %-20s  %-12s  %-8s  %-16.16s  %s\n", job, (long long)r.run, when, r.verdict, r.kind, r.seal, r.backup);
         rc = altsql_db_next(&c);
     }
     hist_close(&h);
@@ -308,7 +310,7 @@ static void send_webhook(const opts *o, const char *workdir, const char *json, c
 /* ---- the run ------------------------------------------------------------------------------------ */
 static const char *kind_name(const char *k, int custom, int gz) {
     static char out[80];
-    const char *n = !strcmp(k, "postgres") ? (custom ? "PostgreSQL custom-format dump" : "PostgreSQL plain dump")
+    const char *n = !strcmp(k, "postgres") ? (custom ? "PostgreSQL archive dump (custom or tar format)" : "PostgreSQL plain dump")
                   : !strcmp(k, "mysql") ? "MySQL dump" : !strcmp(k, "sqlite") ? "SQLite database file"
                   : !strcmp(k, "folder") ? "folder" : "tar archive";
     snprintf(out, sizeof out, "%s%s", n, gz ? " (gzip)" : "");
@@ -321,7 +323,10 @@ static const char *guess_kind(const peeker *k, int *custom) {
     *custom = 0;
     if (k->n >= 16 && !memcmp(k->b, "SQLite format 3", 16)) return "sqlite";
     if (k->n >= 5 && !memcmp(k->b, "PGDMP", 5)) { *custom = 1; return "postgres"; }
-    if (k->n >= 262 && !memcmp(k->b + 257, "ustar", 5)) return "archive";
+    if (k->n >= 262 && !memcmp(k->b + 257, "ustar", 5)) {
+        if (!memcmp(k->b, "toc.dat", 8)) { *custom = 1; return "postgres"; }   /* pg_dump -Ft: pg_restore reads it */
+        return "archive";
+    }
     memcpy(text, k->b, k->n);
     text[k->n] = 0;
     { size_t i; for (i = 0; i < k->n; i++) if (!text[i]) text[i] = ' '; }
@@ -412,7 +417,7 @@ int main(int argc, char **argv) {
     crc_init();
 
     memset(&h, 0, sizeof h);
-    if (hist_open(&h, o.history) || hist_lookup(&h, o.job, &run, &b, &base)) {
+    if (hist_open(&h, o.history, 1) || hist_lookup(&h, o.job, &run, &b, &base)) {
         fprintf(stderr, "altsql-restore: %s\n", g_err);
         hist_close(&h);
         return EXIT_USAGE;
@@ -502,6 +507,7 @@ int main(int argc, char **argv) {
                 int pg = !strcmp(kind, "postgres");
                 copier_tail(&cp, tail);
                 if (pg && cp.hn >= 5 && !memcmp(cp.head, "PGDMP", 5)) custom = 1;
+                if (pg && cp.hn >= 262 && !memcmp(cp.head + 257, "ustar", 5) && !memcmp(cp.head, "toc.dat", 8)) custom = 1;
                 if (o.end_check && !custom) {
                     const char *mark = pg ? "PostgreSQL database dump complete" : "-- Dump completed";
                     if (!strstr(tail, mark)) {

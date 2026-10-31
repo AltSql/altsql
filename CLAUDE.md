@@ -76,9 +76,9 @@ starts but its registry is blocked, so Docker sandboxes can't be tested here.
 - [x] Sandbox, clean-up and stale sweep; Postgres and MySQL via local binaries or Docker (checked by hand: PG 16 and MariaDB 10.11 local; kill -9 with a live server cleaned up by the watchdog)
 - [x] Tests and failure tests; results logs (`engines/restore/results/`, via `tools/all_logs.sh`: unit 22 checks, end-to-end 116 checks with local PG 16 and MariaDB 10.11)
 - [x] CI: build and test the module; release workflow adds the binary (pushed, not yet run: first CI run comes with the version bump)
-- [ ] README (manual), engines/restore/README.md, CHANGELOG, NOTICE/licences check
-- [ ] Independent review of the diff, fixes, logs recorded again
-- [ ] Version 0.5.0, push, watch CI and the release, check files and a downloaded binary
+- [x] README (manual), engines/restore/README.md, CHANGELOG, NOTICE/licences check (no new third-party code; THIRD-PARTY-LICENSES.txt names altsql-restore)
+- [x] Review of the diff (no second agent available: a second pass of my own), fixes, logs recorded again. Fixed: pg_dump -Ft was checked as a file archive (now restored with pg_restore); --list created an empty history; history fd leaked into servers; on macOS the sweep could kill a reused pid (now checks the command line with ps). Fuzzed 700 damaged SQLite/tar files under ASan/UBSan: no crash.
+- [ ] Version 0.5.0, push, watch CI and the release, check files and a downloaded binary (version raised and pushed; watching CI)
 - [ ] Site: post, module list, download/reference pages; check the deploy
 
 Notes from building: when run as root, servers drop to the postgres/mysql
