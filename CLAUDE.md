@@ -13,6 +13,25 @@ success, table enumeration, checksum determinism, injection, sandbox
 isolation and clean-up, the history file and report seals. Each bug gets a
 failing test first. A fixed bug means a 0.5.1 release.
 
+## In progress: AltSql Restore case studies (31 October 2026)
+
+Case studies and use examples for altsql.com, from real runs of the
+released binary (releases/latest, checksum-checked). Only new files under
+`engines/restore/results/case-studies/`; the module's code is not touched.
+
+- [ ] Download the release binary, check its SHA-256.
+- [ ] Public sample databases: Pagila (PostgreSQL), Chinook (MariaDB,
+      PostgreSQL, SQLite), dumped here with pg_dump 16, mariadb-dump,
+      sqlite3. Local PostgreSQL 16 and MariaDB 10.11 (no Docker).
+- [ ] Scenarios: a verified night, an upload cut short, a table that lost
+      most of its rows, a SQLite file copied mid-write, a dump that restores
+      with errors a plain restore script ignores.
+- [ ] Use-example recipes, each run: cron line, --max-shrink, history with
+      altsql-db, --sign-key and --verify-report, webhook, NOT VERIFIED.
+- [ ] One `run.sh` per case study plus recorded outputs and reports.
+- [ ] Site: case study posts, a use examples post, links from the Restore
+      post and the modules page.
+
 ## Done: AltSql Restore, released in 0.5.0 (31 October 2026)
 
 **What.** A new module, `engines/restore/`, one C99 program `altsql-restore`
